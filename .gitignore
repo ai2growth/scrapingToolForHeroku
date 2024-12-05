@@ -1,8 +1,9 @@
-*.pyc
 __pycache__/
-*.pyo
-*.log
-*.sqlite3
-instance/
+*.pyc
 .env
+instance/
+*.db
 venv/
+.DS_Store
+uploads/
+downloads/

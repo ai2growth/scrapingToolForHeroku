@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Edit User{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2>Edit User: {{ user.username }}</h2>
+    <div class="card">
+        <div class="card-body">
+            <form method="POST">
+                <div class="mb-3">
+                    <label for="username" class="form-label">Username</label>
+                    <input type="text" class="form-control" id="username" name="username" 
+                           value="{{ user.username }}" required>
+                </div>
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email</label>
+                    <input type="email" class="form-control" id="email" name="email" 
+                           value="{{ user.email }}" required>
+                </div>
+                <div class="mb-3">
+                    <label for="new_password" class="form-label">New Password (leave blank to keep current)</label>
+                    <input type="password" class="form-control" id="new_password" name="new_password">
+                </div>
+                <div class="mb-3">
+                    <label for="scrape_limit" class="form-label">Scrape Limit</label>
+                    <input type="number" class="form-control" id="scrape_limit" name="scrape_limit" 
+                           value="{{ user.scrape_limit }}" required>
+                </div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="is_admin" name="is_admin" 
+                           {% if user.is_admin %}checked{% endif %}>
+                    <label class="form-check-label" for="is_admin">Admin User</label>
+                </div>
+                <input type="hidden" name="action" value="update">
+                <button type="submit" class="btn btn-primary">Update User</button>
+            </form>
+            
+            <hr>
+            
+            <form method="POST"

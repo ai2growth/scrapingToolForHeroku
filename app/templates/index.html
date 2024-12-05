@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}Smartscrape - Enrich and Categorize Your Website List{% endblock %}
+
+{% block styles %}
+<style>
+    .workflow-section {
+        background-color: #f8f9fa;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 1px solid #dee2e6;
+    }
+
+    .section-title {
+        color: #0d6efd;
+        margin-bottom: 15px;
+        font-weight: 500;
+    }
+
+    .checkbox-container {
+        max-height: 300px;
+        overflow-y: auto;
+        padding: 15px;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        background-color: white;
+    }
+
+    .instructions-section, .output-section, .api-config-section {
+        background-color: white;
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid #dee2e6;
+        margin-top: 20px;
+    }
+
+    .dropdown-container {
+        background-color: white;
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid #dee2e6;
+        margin-top: 20px;
+    }
+
+    #error-message {
+        display: none;
+        color: red;
+        margin-top: 10px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <h1 class="text-center">Smartscrape</h1>
+    <p class="text-center">Clean, enrich, and analyze your data with just a few clicks.</p>
+
+    <!-- Important Notice -->
+    <div class="alert alert-warning" role="alert">
+        <strong>Important Notice:</strong> This tool can only scrape public websites. LinkedIn profiles, private pages, or any content requiring login cannot be accessed.
+    </div>
+
+    <!-- File Upload Section -->
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h4 class="card-title text-center">Step 1: Upload Your File</h4>
+                    <form id="upload-form" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <input type="file" name="file" id="file-input" class="form-control" accept=".csv" required>
+                        </div>
+                        <div class="text-center">
+                            <button type="submit" class="btn btn-success">Upload & Configure</button>
+                        </div>
+                    </form>
+                    <div id="error-message"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scraping Configuration -->
+    <div class="workflow-section" id="scraping-configuration" style="display: none;">
+        <h5 class="section-title">Step 2: Configure Scraping and Analysis</h5>
+        <!-- API Configuration -->
+        <div class="api-config-section">
+            <h6>API Configuration:</h6>
+            <div class="mb-3">
+                <label for="api-key" class="form-label">OpenAI API Key:</label>
+                <input type="password" id="api-key" class="form-control" placeholder="Enter your OpenAI API key" required>
+            </div>
+            <div class="mb-3">
+                <label for="gpt-model" class="form-label">GPT Model:</label>
+                <select id="gpt-model" class="form-select">
+                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                    <option value="gpt-4">GPT-4</option>
+                </select>
+            </div>
+        </div>
+        <!-- Row Limit -->
+        <div class="mb-3">
+            <label for="row-limit" class="form-label">Number of Rows to Process:</label>
+            <input type="number" id="row-limit" class="form-control" placeholder="Enter number of rows (leave empty for all)" min="1">
+        </div>
+        <!-- Column Selection -->
+        <div class="mb-3">
+            <label class="form-label">Select Columns to Analyze:</label>
+            <div class="checkbox-container" id="column-checkboxes"></div>
+        </div>
+        <!-- Instructions for GPT -->
+        <div class="instructions-section">
+            <h6>Reading Instructions:</h6>
+            <textarea id="read-instructions" class="form-control" rows="3" placeholder="Example: Analyze the scraped content..."></textarea>
+        </div>
+        <div class="output-section">
+            <h6>Output Instructions:</h6>
+            <textarea id="output-instructions" class="form-control" rows="3" placeholder="Example: Provide recommendations..."></textarea>
+        </div>
+        <!-- Number of Output Columns -->
+        <div class="dropdown-container">
+            <label for="num-columns" class="form-label">Number of Analysis Columns:</label>
+            <select id="num-columns" class="form-select">
+                <option value="1">1 Column</option>
+                <option value="2">2 Columns</option>
+                <option value="3">3 Columns</option>
+            </select>
+        </div>
+        <div class="text-center mt-4">
+            <button id="start-processing" class="btn btn-primary btn-lg">Start Scraping & Analysis</button>
+        </div>
+    </div>
+
+    <!-- Progress Section -->
+    <div class="progress mt-4" id="progress-bar" style="display: none;">
+        <div class="progress-bar" role="progressbar" style="width: 0%;" id="progress">0%</div>
+    </div>
+
+    <!-- Download Section -->
+    <div id="download-section" class="text-center mt-4" style="display: none;">
+        <h4>Processing Complete!</h4>
+        <a id="download-link" class="btn btn-success" href="#" download>Download Processed File</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Your existing JavaScript code here
+    const socket = io();
+    let taskId = null;
+    // Add your remaining JavaScript here...
+</script>
+{% endblock %}

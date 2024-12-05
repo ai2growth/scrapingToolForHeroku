@@ -1,0 +1,62 @@
+@"
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-12">
+            <h2>Your Dashboard</h2>
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5>Usage Statistics</h5>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="card bg-light">
+                                <div class="card-body">
+                                    <h6>Scrapes Used</h6>
+                                    <h2>{{ current_user.scrapes_used }}</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card bg-light">
+                                <div class="card-body">
+                                    <h6>Scrape Limit</h6>
+                                    <h2>{{ current_user.scrape_limit }}</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card bg-light">
+                                <div class="card-body">
+                                    <h6>Remaining</h6>
+                                    <h2>{{ current_user.scrape_limit - current_user.scrapes_used }}</h2>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="progress mt-4">
+                        <div class="progress-bar" role="progressbar"
+                             style="width: {{ (current_user.scrapes_used / current_user.scrape_limit) * 100 }}%"
+                             aria-valuenow="{{ current_user.scrapes_used }}"
+                             aria-valuemin="0"
+                             aria-valuemax="{{ current_user.scrape_limit }}">
+                            {{ ((current_user.scrapes_used / current_user.scrape_limit) * 100) | round }}%
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <h5>Start New Scraping Task</h5>
+                    <a href="{{ url_for('main.index') }}" class="btn btn-primary">Upload New File</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+"@ | Out-File -FilePath "app\templates\user_dashboard.html" -Encoding UTF8

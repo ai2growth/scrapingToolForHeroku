@@ -1,0 +1,17 @@
+.upload-section {
+    border: 2px dashed #ccc;
+    padding: 20px;
+    text-align: center;
+    margin: 20px 0;
+}
+
+.progress {
+    margin: 20px 0;
+}
+
+.scrape-stats {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 5px;
+    margin-bottom: 20px;
+}
