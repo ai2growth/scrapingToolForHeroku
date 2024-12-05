@@ -9,6 +9,14 @@ class BaseConfig:
     SCRAPEOPS_API_KEY = os.getenv('SCRAPEOPS_API_KEY', '0139316f-c2f9-44ad-948c-f7a3439511c2')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
+class Config:
+    SECRET_KEY = os.getenv('SECRET_KEY', 'your_secret_key')
+    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///users.db')
+    if SQLALCHEMY_DATABASE_URI and SQLALCHEMY_DATABASE_URI.startswith("postgres://"):
+        SQLALCHEMY_DATABASE_URI = SQLALCHEMY_DATABASE_URI.replace("postgres://", "postgresql://", 1)
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SCRAPEOPS_API_KEY = os.getenv('SCRAPEOPS_API_KEY')
+
 class DevelopmentConfig(BaseConfig):
     FLASK_ENV = 'development'
     SQLALCHEMY_DATABASE_URI = 'sqlite:///users.db'

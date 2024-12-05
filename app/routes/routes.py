@@ -260,3 +260,9 @@ def internal_error(error):
 @bp.app_errorhandler(403)
 def forbidden_error(error):
     return render_template("errors/403.html"), 403
+
+@bp.app_errorhandler(Exception)
+def handle_error(error):
+    error_message = str(error)
+    app.logger.error(f'An error occurred: {error_message}')
+    return render_template('errors/error.html', error_message=error_message), 500
