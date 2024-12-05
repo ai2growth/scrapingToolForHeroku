@@ -3,7 +3,12 @@ from app.extensions import db, bcrypt, login_manager, socketio, migrate
 from app.config import Config
 
 def create_app(config_class=Config):
-    app = Flask(__name__)
+    # Explicitly configure static folder and URL path
+    app = Flask(
+        __name__,
+        static_folder="static",  # Path to static folder in the project
+        static_url_path="/static"  # URL path for serving static files
+    )
     app.config.from_object(config_class)
 
     # Initialize extensions
