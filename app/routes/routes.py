@@ -4,21 +4,27 @@ from flask import (
 )
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.utils import secure_filename
+import os
+import logging
+from datetime import datetime, timedelta
+from functools import wraps
 from app.extensions import db, bcrypt
 from app.models import User
 from app.services.scraper import ScraperService
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from functools import wraps
-from datetime import datetime, timedelta
-import logging
-import os
 
 # Create Blueprint
 bp = Blueprint('main', __name__)
 
-# Rate Limiter
-limiter = Limiter(key_func=get_remote_address, default_limits=["200 per day", "50 per hour"])
+# Optional Flask-Limiter for rate limiting
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    limiter = Limiter(
+        key_func=get_remote_address,
+        default_limits=["200 per day", "50 per hour"]
+    )
+except ImportError:
+    limiter = None
 
 # Middleware
 @bp.before_request
@@ -117,7 +123,7 @@ def change_password():
 ## Scraping Route
 @bp.route("/scrape", methods=["POST"])
 @login_required
-@limiter.limit("60 per minute")
+@limiter.limit("60 per minute") if limiter else lambda x: x  # Apply limit if limiter exists
 def scrape():
     """Scrape URLs and return results."""
     validation_error = validate_request_json()
@@ -162,7 +168,7 @@ def scrape():
 
 ## Auth Routes
 @bp.route("/login", methods=["GET", "POST"])
-@limiter.limit("5 per minute")
+@limiter.limit("5 per minute") if limiter else lambda x: x  # Apply limit if limiter exists
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("main.index"))
@@ -189,8 +195,30 @@ def login():
 
     return render_template("login.html")
 
+
+def create_app(config_class=Config):
+    app = Flask(__name__)
+    app.config.from_object(config_class)
+
+    # Initialize extensions
+    db.init_app(app)
+    bcrypt.init_app(app)
+    login_manager.init_app(app)
+    socketio.init_app(app)
+    migrate.init_app(app, db)
+
+    # Initialize rate limiter if available
+    if limiter:
+        limiter.init_app(app)
+
+    # Register blueprints
+    from app.routes.routes import bp
+    app.register_blueprint(bp)
+
+    return app
+
 @bp.route("/register", methods=["GET", "POST"])
-@limiter.limit("3 per hour")
+@limiter.limit("3 per hour") if limiter else lambda x: x  # Apply limit if limiter exists
 def register():
     if current_user.is_authenticated:
         return redirect(url_for("main.index"))
