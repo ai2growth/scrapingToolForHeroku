@@ -15,9 +15,13 @@ class DevelopmentConfig(BaseConfig):
 
 class ProductionConfig(BaseConfig):
     FLASK_ENV = 'production'
-    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL')
-
-    if not SQLALCHEMY_DATABASE_URI:
+    database_url = os.getenv('DATABASE_URL')
+    if database_url:
+        # Convert postgres:// to postgresql:// in database URL
+        if database_url.startswith('postgres://'):
+            database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        SQLALCHEMY_DATABASE_URI = database_url
+    else:
         raise RuntimeError("DATABASE_URL is required in production!")
 
 # Determine which config to use
@@ -26,9 +30,3 @@ if env == 'production':
     Config = ProductionConfig
 else:
     Config = DevelopmentConfig
-
-# Add warnings for local development
-if env != 'production' and not os.path.exists('.env'):
-    print("Warning: .env file not found. Ensure environment variables are set.")
-if Config.SQLALCHEMY_DATABASE_URI == 'sqlite:///users.db':
-    print("Using SQLite fallback. Set DATABASE_URL for production.")
