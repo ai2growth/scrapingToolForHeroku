@@ -1,0 +1,26 @@
+Testing
+Local Development:
+
+Create a .env file:
+plaintext
+Copy code
+FLASK_ENV=development
+SECRET_KEY=my-secret-key
+SCRAPEOPS_API_KEY=my-scrapeops-key
+Run the app locally:
+bash
+Copy code
+flask run
+
+
+Production (Heroku):
+
+Ensure DATABASE_URL is set in Heroku:
+bash
+Copy code
+heroku config:set DATABASE_URL="your-postgres-url"
+Deploy and test:
+bash
+Copy code
+git push heroku main
+heroku logs --tail --app your-app-name
