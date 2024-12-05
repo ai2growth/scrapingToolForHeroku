@@ -195,28 +195,6 @@ def login():
 
     return render_template("login.html")
 
-
-def create_app(config_class=Config):
-    app = Flask(__name__)
-    app.config.from_object(config_class)
-
-    # Initialize extensions
-    db.init_app(app)
-    bcrypt.init_app(app)
-    login_manager.init_app(app)
-    socketio.init_app(app)
-    migrate.init_app(app, db)
-
-    # Initialize rate limiter if available
-    if limiter:
-        limiter.init_app(app)
-
-    # Register blueprints
-    from app.routes.routes import bp
-    app.register_blueprint(bp)
-
-    return app
-
 @bp.route("/register", methods=["GET", "POST"])
 @limiter.limit("3 per hour") if limiter else lambda x: x  # Apply limit if limiter exists
 def register():
