@@ -1,32 +1,138 @@
-/* Basic styles */
-body {
-    font-family: Arial, sans-serif;
-    margin: 0;
-    padding: 20px;
-    background-color: #f5f5f5;
-}
-
-.container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 20px;
-    background-color: white;
-    border-radius: 5px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.form-group {
-    margin-bottom: 15px;
-}
-
-.btn {
+/* Navbar styling */
+.navbar {
+    background-color: #343a40; /* Dark gray for navbar */
     padding: 10px 20px;
-    border-radius: 5px;
-    cursor: pointer;
+}
+
+/* Navbar brand styling */
+.navbar-brand {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #ffffff !important; /* White text */
+    background-color: transparent !important; /* Ensure no background on the brand text */
+    padding: 0;
+}
+
+/* Remove extra white space or box */
+.navbar-brand,
+.navbar-brand:focus,
+.navbar-brand:hover {
+    text-decoration: none;
+    color: #ffffff !important;
+    background-color: transparent !important; /* Ensure transparent background */
+}
+
+/* Reset button or navbar container padding */
+.navbar-toggler {
+    border-color: rgba(255, 255, 255, 0.5); /* Ensure it blends with navbar */
+}
+
+/* Add optional hover effect for links */
+.nav-link {
+    color: #ffffff !important; /* White text for nav links */
+    padding: 8px 15px;
+    transition: background-color 0.3s ease-in-out, color 0.3s ease-in-out;
+}
+
+.nav-link:hover {
+    color: #f8f9fa !important; /* Light gray hover effect */
+    background-color: rgba(255, 255, 255, 0.1); /* Subtle hover background */
+}
+
+/* Prevent white box near logo or elements */
+.container,
+.navbar-collapse {
+    background-color: transparent !important; /* Transparent for consistency */
+    box-shadow: none !important;
+}
+
+/* General fixes for unwanted white areas */
+body {
+    background-color: #e9f5ff; /* Optional: Change overall body background */
+}
+
+main {
+    background-color: transparent; /* Ensure main section doesn’t interfere */
+}
+
+.progress {
+    height: 25px;
+    margin-top: 20px;
+}
+
+.progress-bar {
+    line-height: 25px;
+    font-size: 14px;
+}
+
+#columnCheckboxes {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    padding: 15px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+.form-check {
+    margin-bottom: 8px;
+}
+
+#processingSection {
+    transition: all 0.3s ease;
+}
+
+#progressSection, #resultsSection {
+    transition: all 0.3s ease;
+}
+
+.card {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.btn-primary {
+    padding: 8px 20px;
 }
 
 .alert {
-    padding: 15px;
-    margin-bottom: 20px;
-    border-radius: 4px;
+    margin-top: 20px;
+}
+
+.alert-link {
+    text-decoration: none;
+    font-weight: bold;
+}
+
+.alert-link:hover {
+    text-decoration: underline;
+}
+
+/* Form Styling */
+.form-label {
+    font-weight: 500;
+}
+
+.form-control {
+    margin-bottom: 10px;
+}
+
+.text-muted {
+    font-size: 0.875rem;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+    
+    #columnCheckboxes {
+        max-height: 150px;
+    }
 }

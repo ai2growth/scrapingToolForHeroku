@@ -1,268 +1,233 @@
-from flask import (
-    Blueprint, render_template, request, jsonify,
-    redirect, url_for, flash, current_app, g
-)
-from flask_login import login_user, logout_user, login_required, current_user
+from flask import Blueprint, request, jsonify, send_file
+from flask_login import login_required
 from werkzeug.utils import secure_filename
+from flask_socketio import emit
+import asyncio
 import os
-import logging
+import random
+import pandas as pd
 from datetime import datetime, timedelta
 from functools import wraps
-from app.extensions import db, bcrypt
-from app.models import User
-from app.services.scraper import ScraperService
+from bs4 import BeautifulSoup
+from aiohttp import ClientSession, ClientTimeout
+import openai
+import logging
 
-# Create Blueprint
-bp = Blueprint('main', __name__)
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# Optional Flask-Limiter for rate limiting
-try:
-    from flask_limiter import Limiter
-    from flask_limiter.util import get_remote_address
-    limiter = Limiter(
-        key_func=get_remote_address,
-        default_limits=["200 per day", "50 per hour"]
-    )
-except ImportError:
-    limiter = None
+bp = Blueprint("api", __name__)
 
-# Middleware
-@bp.before_request
-def log_request_info():
-    if not request.path.startswith('/static'):
-        logging.info(f"Request: {request.method} {request.path} from {request.remote_addr}")
+# Constants
+UPLOAD_FOLDER = "uploads"
+DOWNLOADS_FOLDER = "downloads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(DOWNLOADS_FOLDER, exist_ok=True)
 
-@bp.before_request
-def make_session_permanent():
-    current_app.permanent_session_lifetime = timedelta(days=7)
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36",
+]
 
-@bp.before_request
-def update_last_seen():
-    if current_user.is_authenticated:
-        current_user.last_seen = datetime.utcnow()
-        db.session.commit()
+class RateLimiter:
+    def __init__(self, calls_per_minute=60):
+        self.calls_per_minute = calls_per_minute
+        self.calls = []
 
-@bp.after_request
-def add_rate_limit_headers(response):
-    try:
-        remaining = getattr(g, 'rate_limit_remaining', None)
-        if remaining is not None:
-            response.headers['X-RateLimit-Remaining'] = str(remaining)
-    except Exception:
-        pass
-    return response
+    def can_call(self):
+        now = datetime.now()
+        minute_ago = now - timedelta(minutes=1)
+        self.calls = [call for call in self.calls if call > minute_ago]
+        if len(self.calls) < self.calls_per_minute:
+            self.calls.append(now)
+            return True
+        return False
 
-# Decorators
-def admin_required(func):
+rate_limiter = RateLimiter()
+
+def rate_limit_scraping(func):
     @wraps(func)
-    def decorated_view(*args, **kwargs):
-        if not current_user.is_admin:
-            flash("Access denied. Admin privileges required.", "danger")
-            return redirect(url_for("main.index"))
-        return func(*args, **kwargs)
-    return decorated_view
+    async def wrapper(*args, **kwargs):
+        if not rate_limiter.can_call():
+            return jsonify({"error": "Rate limit exceeded. Please try again later."}), 429
+        return await func(*args, **kwargs)
+    return wrapper
 
-# Helpers
-def validate_request_json():
-    """Validate JSON request data."""
-    if not request.is_json:
-        return jsonify({"error": "Content-Type must be application/json"}), 415
-    return None
+async def scrape_website(url):
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    timeout = ClientTimeout(total=30)
+    try:
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
+        async with ClientSession(timeout=timeout) as session:
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    soup = BeautifulSoup(await response.text(), "html.parser")
+                    title = soup.title.string if soup.title else ""
+                    meta_desc = soup.find("meta", attrs={"name": "description"})
+                    description = meta_desc["content"] if meta_desc else ""
+                    content = " ".join([elem.get_text(strip=True) for elem in soup.find_all(["p", "h1", "h2"])])
+                    return {"url": url, "title": title, "description": description, "content": content[:5000], "status": "success"}
+                else:
+                    return {"url": url, "status": "error", "error": f"HTTP {response.status}"}
+    except Exception as e:
+        return {"url": url, "status": "error", "error": str(e)}
 
-# Routes
-## Main Routes
-@bp.route("/")
-def index():
-    if current_user.is_authenticated:
-        return render_template("index.html")
-    return redirect(url_for("main.login"))
+def analyze_with_gpt(data, instructions, model="gpt-3.5-turbo"):
+    try:
+        prompt = f"""
+        Analyze the following:
+        URL: {data['url']}
+        Title: {data['title']}
+        Description: {data['description']}
+        Content: {data['content']}
+        Instructions: {instructions}
+        """
+        response = openai.ChatCompletion.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a web content analysis expert."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=1000
+        )
+        return {"status": "success", "analysis": response.choices[0].message.content}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
-@bp.route("/dashboard")
+@bp.route("/upload", methods=["POST"])
 @login_required
-def dashboard():
-    """User dashboard showing usage stats."""
-    return render_template(
-        "user_dashboard.html",
-        scrapes_used=current_user.scrapes_used,
-        scrape_limit=current_user.scrape_limit,
-        remaining_scrapes=current_user.scrape_limit - current_user.scrapes_used
-    )
+def upload():
+    try:
+        if "file" not in request.files:
+            return jsonify({"error": "No file part"}), 400
 
-@bp.route("/change-password", methods=["GET", "POST"])
-@login_required
-def change_password():
-    if request.method == "POST":
-        try:
-            current_password = request.form.get("current_password")
-            new_password = request.form.get("new_password")
-            confirm_password = request.form.get("confirm_password")
+        file = request.files["file"]
+        if not file or file.filename == "":
+            return jsonify({"error": "No selected file"}), 400
 
-            if not bcrypt.check_password_hash(current_user.password, current_password):
-                flash("Current password is incorrect.", "danger")
-                return redirect(url_for("main.change_password"))
+        if file and file.filename.endswith(".csv"):
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(UPLOAD_FOLDER, filename)
+            file.save(file_path)
 
-            if len(new_password) < 8:
-                flash("New password must be at least 8 characters long.", "danger")
-                return redirect(url_for("main.change_password"))
+            df = pd.read_csv(file_path)
+            df = df.dropna(axis=1, how="all")
+            df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
 
-            if new_password != confirm_password:
-                flash("New passwords don't match.", "danger")
-                return redirect(url_for("main.change_password"))
+            website_columns = ["Website", "website", "Domain", "domain", "URL", "url"]
+            found_column = next((col for col in website_columns if col in df.columns), None)
 
-            current_user.password = bcrypt.generate_password_hash(new_password).decode("utf-8")
-            db.session.commit()
-            flash("Password updated successfully.", "success")
-            return redirect(url_for("main.dashboard"))
+            if not found_column:
+                return jsonify({"error": "No website column found"}), 400
 
-        except Exception as e:
-            logging.error(f"Password change error for user {current_user.id}: {e}")
-            flash("An error occurred while changing your password.", "danger")
+            return jsonify({
+                "filename": filename,
+                "columns": list(df.columns),
+                "file_path": file_path,
+                "website_column": found_column
+            })
+        return jsonify({"error": "Invalid file type. Please upload a CSV file."}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    return render_template("change_password.html")
-
-## Scraping Route
 @bp.route("/scrape", methods=["POST"])
 @login_required
-@limiter.limit("60 per minute") if limiter else lambda x: x  # Apply limit if limiter exists
-def scrape():
-    """Scrape URLs and return results."""
-    validation_error = validate_request_json()
-    if validation_error:
-        return validation_error
-
+@rate_limit_scraping
+async def scrape():
     try:
         data = request.json
-        urls = data.get("urls", [])
+        file_path = data["file_path"]
+        instructions = data["instructions"]
+        gpt_model = data["gpt_model"]
+        api_key = data.get("api_key")
+        website_column = data.get("website_column")
+        row_limit = data.get("row_limit")
 
-        if not urls:
-            return jsonify({"error": "No URLs provided"}), 400
+        if not api_key:
+            return jsonify({"error": "OpenAI API key is required"}), 400
 
-        remaining_scrapes = current_user.scrape_limit - current_user.scrapes_used
-        if len(urls) > remaining_scrapes:
-            return jsonify({"error": "Scrape limit exceeded"}), 403
+        if not website_column:
+            return jsonify({"error": "Website column not specified"}), 400
 
-        scraper = ScraperService(current_app.config["SCRAPEOPS_API_KEY"])
-        scraped_data, errors = [], []
+        openai.api_key = api_key
 
-        for url in urls:
+        df = pd.read_csv(file_path)
+        if website_column not in df.columns:
+            return jsonify({"error": f"Column '{website_column}' not found in CSV"}), 400
+        if row_limit and row_limit > 0:
+            df = df.head(row_limit)
+
+        total_rows = len(df)
+        results = []
+
+        for index, row in df.iterrows():
             try:
-                result = scraper.scrape_url(url)
-                scraped_data.append(result)
-                current_user.scrapes_used += 1
-                db.session.commit()
-            except Exception as e:
-                errors.append({"url": url, "error": str(e)})
-                logging.error(f"Error scraping URL {url}: {e}")
+                url = row[website_column]
+                scraped_data = await scrape_website(url)
+                if scraped_data["status"] == "success":
+                    gpt_result = analyze_with_gpt(scraped_data, instructions, gpt_model)
+                    results.append({**scraped_data, **gpt_result})
+                else:
+                    results.append(scraped_data)
 
-        response = {
-            "message": "Scraping complete",
-            "data": scraped_data,
-            "errors": errors,
-            "scrapes_remaining": current_user.scrape_limit - current_user.scrapes_used
-        }
-        return jsonify(response)
+                progress = {
+                    "current": index + 1,
+                    "total": total_rows,
+                    "percentage": round(((index + 1) / total_rows) * 100, 2)
+                }
+                emit("scraping_progress", progress)
+
+                await asyncio.sleep(1)
+            except Exception as e:
+                results.append({
+                    "url": row[website_column],
+                    "status": "error",
+                    "error": str(e)
+                })
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = f"results_{timestamp}.csv"
+        output_path = os.path.join(DOWNLOADS_FOLDER, output_file)
+        pd.DataFrame(results).to_csv(output_path, index=False)
+
+        emit("scraping_complete", {
+            "file": output_file,
+            "summary": {
+                "total": total_rows,
+                "successful": len([r for r in results if r["status"] == "success"]),
+                "failed": len([r for r in results if r["status"] == "error"])
+            }
+        })
+
+        return jsonify({"status": "success", "file": output_file})
 
     except Exception as e:
-        logging.error(f"Scraping error: {e}")
-        return jsonify({"error": "An unexpected error occurred"}), 500
+        return jsonify({"status": "error", "error": str(e)}), 500
 
-## Auth Routes
-@bp.route("/login", methods=["GET", "POST"])
-@limiter.limit("5 per minute") if limiter else lambda x: x  # Apply limit if limiter exists
-def login():
-    if current_user.is_authenticated:
-        return redirect(url_for("main.index"))
-
-    next_page = request.args.get("next")
-    if request.method == "POST":
-        try:
-            email = request.form.get("email")
-            password = request.form.get("password")
-            user = User.query.filter_by(email=email).first()
-
-            if user and bcrypt.check_password_hash(user.password, password):
-                user.last_seen = datetime.utcnow()
-                user.last_login_ip = request.remote_addr
-                db.session.commit()
-                login_user(user)
-                flash("Login successful!", "success")
-                return redirect(next_page) if next_page else redirect(url_for("main.index"))
-            else:
-                flash("Invalid email or password.", "danger")
-        except Exception as e:
-            logging.error(f"Login error: {e}")
-            flash("An error occurred during login.", "danger")
-
-    return render_template("login.html")
-
-@bp.route("/register", methods=["GET", "POST"])
-@limiter.limit("3 per hour") if limiter else lambda x: x  # Apply limit if limiter exists
-def register():
-    if current_user.is_authenticated:
-        return redirect(url_for("main.index"))
-
-    if request.method == "POST":
-        try:
-            username = request.form.get("username")
-            email = request.form.get("email")
-            password = request.form.get("password")
-
-            if len(username) < 3:
-                flash("Username must be at least 3 characters long.", "danger")
-                return redirect(url_for("main.register"))
-
-            if len(password) < 8:
-                flash("Password must be at least 8 characters long.", "danger")
-                return redirect(url_for("main.register"))
-
-            if '@' not in email:
-                flash("Invalid email address.", "danger")
-                return redirect(url_for("main.register"))
-
-            if User.query.filter_by(email=email).first():
-                flash("Email already registered.", "danger")
-                return redirect(url_for("main.register"))
-
-            if User.query.filter_by(username=username).first():
-                flash("Username already taken.", "danger")
-                return redirect(url_for("main.register"))
-
-            hashed_password = bcrypt.generate_password_hash(password).decode("utf-8")
-            user = User(username=username, email=email, password=hashed_password)
-            db.session.add(user)
-            db.session.commit()
-
-            flash("Registration successful! Please log in.", "success")
-            return redirect(url_for("main.login"))
-        except Exception as e:
-            logging.error(f"Registration error: {e}")
-            flash("An error occurred during registration.", "danger")
-
-    return render_template("register.html")
-
-@bp.route("/logout")
+@bp.route("/download/<filename>")
 @login_required
-def logout():
-    logout_user()
-    flash("You have been logged out.", "success")
-    return redirect(url_for("main.login"))
+def download(filename):
+    return send_file(os.path.join(DOWNLOADS_FOLDER, filename), as_attachment=True)
 
-## Error Handlers
-@bp.app_errorhandler(404)
-def not_found_error(error):
-    return render_template("errors/404.html"), 404
+@bp.errorhandler(413)
+def request_entity_too_large(error):
+    return jsonify({
+        "error": "File too large",
+        "message": "The uploaded file exceeds the maximum allowed size."
+    }), 413
 
-@bp.app_errorhandler(500)
-def internal_error(error):
-    db.session.rollback()
-    return render_template("errors/500.html"), 500
+@bp.errorhandler(429)
+def too_many_requests(error):
+    return jsonify({
+        "error": "Too many requests",
+        "message": "Please wait before making another request."
+    }), 429
 
-@bp.app_errorhandler(403)
-def forbidden_error(error):
-    return render_template("errors/403.html"), 403
-
-@bp.app_errorhandler(Exception)
-def handle_error(error):
-    error_message = str(error)
-    app.logger.error(f'An error occurred: {error_message}')
-    return render_template('errors/error.html', error_message=error_message), 500
+@bp.errorhandler(500)
+def internal_server_error(error):
+    return jsonify({
+        "error": "Internal server error",
+        "message": "An unexpected error occurred."
+    }), 500

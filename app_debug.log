@@ -1,0 +1,39 @@
+2024-12-06 20:30:25,649 - DEBUG - Database path: sqlite:///C:\python\python code\scrapingToolForHeroku\instance\app.db
+2024-12-06 20:30:25,665 - DEBUG - Database tables initialized.
+2024-12-06 20:30:25,681 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2024-12-06 20:30:25,681 - INFO - [33mPress CTRL+C to quit[0m
+2024-12-06 20:30:25,696 - INFO -  * Restarting with stat
+2024-12-06 20:30:26,243 - DEBUG - Database path: sqlite:///C:\python\python code\scrapingToolForHeroku\instance\app.db
+2024-12-06 20:30:26,275 - DEBUG - Database tables initialized.
+2024-12-06 20:30:26,275 - WARNING -  * Debugger is active!
+2024-12-06 20:30:26,306 - INFO -  * Debugger PIN: 123-465-728
+2024-12-06 20:30:37,331 - INFO - 127.0.0.1 - - [06/Dec/2024 20:30:37] "GET / HTTP/1.1" 200 -
+2024-12-06 20:30:37,690 - INFO - 127.0.0.1 - - [06/Dec/2024 20:30:37] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+2024-12-06 20:30:38,133 - INFO - 127.0.0.1 - - [06/Dec/2024 20:30:38] "[36mGET /static/favicon.ico HTTP/1.1[0m" 304 -
+2024-12-06 20:30:40,455 - INFO - 127.0.0.1 - - [06/Dec/2024 20:30:40] "GET /auth/login HTTP/1.1" 200 -
+2024-12-06 20:30:40,505 - INFO - 127.0.0.1 - - [06/Dec/2024 20:30:40] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+2024-12-06 20:30:40,667 - INFO - 127.0.0.1 - - [06/Dec/2024 20:30:40] "[36mGET /static/favicon.ico HTTP/1.1[0m" 304 -
+2024-12-06 20:30:43,259 - INFO - 127.0.0.1 - - [06/Dec/2024 20:30:43] "GET /auth/register HTTP/1.1" 200 -
+2024-12-06 20:30:43,322 - INFO - 127.0.0.1 - - [06/Dec/2024 20:30:43] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+2024-12-06 20:30:43,482 - INFO - 127.0.0.1 - - [06/Dec/2024 20:30:43] "[36mGET /static/favicon.ico HTTP/1.1[0m" 304 -
+2024-12-06 20:31:06,542 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:06] "[32mPOST /auth/register HTTP/1.1[0m" 302 -
+2024-12-06 20:31:06,560 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:06] "GET /auth/login HTTP/1.1" 200 -
+2024-12-06 20:31:06,609 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:06] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+2024-12-06 20:31:06,756 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:06] "[36mGET /static/favicon.ico HTTP/1.1[0m" 304 -
+2024-12-06 20:31:15,728 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:15] "POST /auth/login HTTP/1.1" 200 -
+2024-12-06 20:31:15,816 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:15] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+2024-12-06 20:31:15,943 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:15] "[36mGET /static/favicon.ico HTTP/1.1[0m" 304 -
+2024-12-06 20:31:25,312 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:25] "POST /auth/login HTTP/1.1" 200 -
+2024-12-06 20:31:25,352 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:25] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+2024-12-06 20:31:25,471 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:25] "[36mGET /static/favicon.ico HTTP/1.1[0m" 304 -
+2024-12-06 20:31:38,626 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:38] "GET /auth/forgot-password HTTP/1.1" 200 -
+2024-12-06 20:31:38,667 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:38] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+2024-12-06 20:31:38,804 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:38] "[36mGET /static/favicon.ico HTTP/1.1[0m" 304 -
+2024-12-06 20:31:45,419 - INFO - The CSRF token is missing.
+2024-12-06 20:31:45,419 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:45] "[31m[1mPOST /auth/forgot-password HTTP/1.1[0m" 400 -
+2024-12-06 20:31:47,904 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:47] "[36mGET /static/favicon.ico HTTP/1.1[0m" 304 -
+2024-12-06 20:31:50,586 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:50] "[36mGET /static/favicon.ico HTTP/1.1[0m" 304 -
+2024-12-06 20:31:54,394 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:54] "GET /auth/login HTTP/1.1" 200 -
+2024-12-06 20:31:54,440 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:54] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
+2024-12-06 20:31:54,601 - INFO - 127.0.0.1 - - [06/Dec/2024 20:31:54] "[36mGET /static/favicon.ico HTTP/1.1[0m" 304 -

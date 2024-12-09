@@ -27,16 +27,36 @@ def create_app():
     app = Flask(__name__)
     
     # Configuration
-    app.config["SECRET_KEY"] = "your_secret_key"
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
-    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key")
     
+    # Database configuration
+    if os.getenv("FLASK_ENV") == "development":
+        app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
+    else:
+        app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
+        if app.config["SQLALCHEMY_DATABASE_URI"] and app.config["SQLALCHEMY_DATABASE_URI"].startswith("postgres://"):
+            app.config["SQLALCHEMY_DATABASE_URI"] = app.config["SQLALCHEMY_DATABASE_URI"].replace("postgres://", "postgresql://", 1)
+    
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    app.config["UPLOAD_FOLDER"] = "uploads"
+    app.config["DOWNLOADS_FOLDER"] = "downloads"
+
     # Initialize extensions
     db.init_app(app)
+    bcrypt.init_app(app)
+    login_manager.init_app(app)
+    socketio.init_app(app)
     migrate.init_app(app, db)
-    
-    return app
 
+    # Ensure required folders exist
+    os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+    os.makedirs(app.config["DOWNLOADS_FOLDER"], exist_ok=True)
+
+    # Create database tables
+    with app.app_context():
+        db.create_all()
+
+    return app
 
 
 

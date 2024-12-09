@@ -1,40 +1,33 @@
+# config.py
 import os
-from dotenv import load_dotenv
+from pathlib import Path
 
-# Load environment variables from .env file
-load_dotenv()
-
-class BaseConfig:
-    SECRET_KEY = os.getenv('SECRET_KEY', 'your_secret_key')
-    SCRAPEOPS_API_KEY = os.getenv('SCRAPEOPS_API_KEY', '0139316f-c2f9-44ad-948c-f7a3439511c2')
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
+basedir = os.path.abspath(os.path.dirname(__file__))
 
 class Config:
-    SECRET_KEY = os.getenv('SECRET_KEY', 'your_secret_key')
-    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///users.db')
-    if SQLALCHEMY_DATABASE_URI and SQLALCHEMY_DATABASE_URI.startswith("postgres://"):
-        SQLALCHEMY_DATABASE_URI = SQLALCHEMY_DATABASE_URI.replace("postgres://", "postgresql://", 1)
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SCRAPEOPS_API_KEY = os.getenv('SCRAPEOPS_API_KEY')
-
-class DevelopmentConfig(BaseConfig):
-    FLASK_ENV = 'development'
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///users.db'
-
-class ProductionConfig(BaseConfig):
-    FLASK_ENV = 'production'
-    database_url = os.getenv('DATABASE_URL')
-    if database_url:
-        # Convert postgres:// to postgresql:// in database URL
-        if database_url.startswith('postgres://'):
-            database_url = database_url.replace('postgres://', 'postgresql://', 1)
-        SQLALCHEMY_DATABASE_URI = database_url
+    SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev'
+    
+    # Database configuration
+    if os.environ.get('DATABASE_URL'):
+        # Heroku database URL
+        SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
+        if SQLALCHEMY_DATABASE_URI.startswith('postgres://'):
+            SQLALCHEMY_DATABASE_URI = SQLALCHEMY_DATABASE_URI.replace('postgres://', 'postgresql://', 1)
     else:
-        raise RuntimeError("DATABASE_URL is required in production!")
-
-# Determine which config to use
-env = os.getenv('FLASK_ENV', 'development').lower()
-if env == 'production':
-    Config = ProductionConfig
-else:
-    Config = DevelopmentConfig
+        # Local SQLite database
+        SQLALCHEMY_DATABASE_URI = f'sqlite:///{os.path.join(basedir, "instance", "app.db")}'
+    
+    # Ensure instance folder exists
+    INSTANCE_PATH = os.path.join(basedir, 'instance')
+    Path(INSTANCE_PATH).mkdir(exist_ok=True)
+    
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    
+    # File upload settings
+    UPLOAD_FOLDER = os.path.join(basedir, 'uploads')
+    DOWNLOADS_FOLDER = os.path.join(basedir, 'downloads')
+    MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
+    
+    # Create necessary directories
+    Path(UPLOAD_FOLDER).mkdir(exist_ok=True)
+    Path(DOWNLOADS_FOLDER).mkdir(exist_ok=True)

@@ -1,0 +1,26 @@
+import os
+from flask import Flask
+from flask_sqlalchemy import SQLAlchemy
+
+# Initialize database
+db = SQLAlchemy()
+
+def create_app():
+    \"\"\"Flask application factory.\"\"\"
+    app = Flask(__name__)
+
+    # Configure SQLite database
+    app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(app.instance_path, 'app.db')}"
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+    # Ensure the instance folder exists
+    os.makedirs(app.instance_path, exist_ok=True)
+
+    # Initialize the database
+    db.init_app(app)
+
+    # Create database tables if they don't exist
+    with app.app_context():
+        db.create_all()
+
+    return app
