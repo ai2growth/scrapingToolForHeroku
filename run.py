@@ -1,8 +1,10 @@
-﻿# run.py
-from app import create_app
+﻿from app import create_app
 from app.extensions import socketio
 
 app = create_app()
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
+    if os.environ.get('FLASK_ENV') == 'production':
+        app.run()
+    else:
+        socketio.run(app, debug=True)
