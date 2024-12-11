@@ -115,8 +115,19 @@ function initializeApp() {
     });
 
     // 2. Socket.IO Setup
-    socket = io();  // Assign to global variable
+    // 2. Socket.IO Setup
+try {
+    socket = io({
+        transports: ['websocket', 'polling'],
+        upgrade: true,
+        reconnection: true,
+        reconnectionAttempts: 5
+    });
     console.log('Socket.IO initialized');
+} catch (error) {
+    console.error('Socket.IO initialization error:', error);
+    showError('Failed to initialize real-time connection');
+}
 
     socket.on('connect_error', (error) => {
         console.error('Socket connection error:', error);
@@ -346,55 +357,62 @@ function initializeApp() {
         }
     });
  
-processForm.addEventListener('submit', async (e) => {
+  
+// Add this right after the processForm handler
+uploadForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    console.log('Upload form submitted');
 
-    if (!verifySocketConnection()) {
-        showError('Not connected to server. Please refresh the page.');
+    const formData = new FormData();
+    const file = fileInput.files[0];
+
+    if (!file) {
+        showError('Please select a file');
         return;
     }
 
-    const apiKey = document.getElementById('api_key').value;
-    const instructions = document.getElementById('instructions').value;
-
-    if (!apiKey || !instructions) {
-        showError('Please complete all required fields');
-        return;
-    }
-
-    processButton.disabled = true;
-    processButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
-
-    startProgressMonitoring();
+    console.log('File selected:', file.name);
+    formData.append('file', file);
 
     try {
-        const payload = {
-            file_path: document.getElementById('file_path').value,
-            api_key: apiKey,
-            instructions: instructions,
-            gpt_model: document.getElementById('gpt_model').value,
-            row_limit: parseInt(document.getElementById('row-limit').value) || null,
-            additional_columns: []
-        };
+        uploadButton.disabled = true;
+        uploadButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading...';
 
-        // ... rest of your code ...
-
-        const response = await fetch('/process', {
+        const response = await fetch('/upload', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-            credentials: 'include',
-            redirect: 'follow'
+            body: formData,
+            credentials: 'include'  // Important for session handling
         });
 
-        // Check if we're being redirected to login
+        console.log('Upload response status:', response.status);
+
         if (response.redirected) {
             window.location.href = response.url;
             return;
         }
 
-     
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Upload failed');
+        }
 
+        const data = await response.json();
+        console.log('Upload response data:', data);
+
+        if (data.file_path) {
+            document.getElementById('file_path').value = data.file_path;
+            showNotification('File uploaded successfully! Please configure your analysis settings.', 'success');
+            configSection.style.display = 'block';
+            processButton.disabled = false;
+        }
+    } catch (error) {
+        console.error('Upload error:', error);
+        showError(error.message || 'Failed to upload file');
+    } finally {
+        uploadButton.disabled = false;
+        uploadButton.innerHTML = 'Upload & Configure';
+    }
+});
 
     // Add the additional columns handler
     numAdditionalColumns.addEventListener('change', () => {
