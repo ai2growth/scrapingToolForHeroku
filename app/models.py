@@ -1,5 +1,5 @@
 from flask_login import UserMixin
-from datetime import datetime, timedelta  # Add timedelta here
+from datetime import datetime
 from .extensions import db
 
 class User(UserMixin, db.Model):
@@ -13,18 +13,6 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     scrape_limit = db.Column(db.Integer, default=20000)
     scrapes_used = db.Column(db.Integer, default=0)
-    last_reset_date = db.Column(db.DateTime, default=datetime.utcnow)
-
-    def check_scrape_limit(self, rows_to_scrape):
-        """Check if user can scrape the requested number of rows"""
-        # Reset counter if it's been more than 30 days
-        if datetime.utcnow() - self.last_reset_date > timedelta(days=30):
-            self.scrapes_used = 0
-            self.last_reset_date = datetime.utcnow()
-            db.session.commit()
-
-        # Check if scraping these rows would exceed the limit
-        return self.scrapes_used + rows_to_scrape <= self.scrape_limit
 
     def update_scrape_count(self, rows_scraped):
         """Update the number of rows scraped by the user"""
