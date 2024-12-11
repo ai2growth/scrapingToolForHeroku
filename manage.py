@@ -1,8 +1,8 @@
 from flask.cli import FlaskGroup
 from app import create_app
-from app.extensions import db, PasswordHasher as bcrypt  # Update this line
-from app.models import User
+from app.extensions import db, PasswordHasher
 from flask_migrate import Migrate
+from app.models import User
 import logging
 import os
 from sqlalchemy import inspect
@@ -11,7 +11,7 @@ from sqlalchemy import inspect
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Create app and CLI interface
+# Create app and initialize extensions
 app = create_app()
 cli = FlaskGroup(app)
 migrate = Migrate(app, db)
@@ -20,8 +20,7 @@ def reset_db():
     """Reset the database by creating fresh tables."""
     try:
         with app.app_context():
-            # For Heroku PostgreSQL, we don't remove the database file
-            # Instead, we drop all tables and recreate them
+            # For Heroku PostgreSQL, we drop all tables and recreate them
             db.drop_all()
             logger.info("Dropped all tables")
 
@@ -38,7 +37,7 @@ def reset_db():
                 raise RuntimeError("Users table not created.")
             
             # Create admin user
-            hashed_password = bcrypt.generate_password_hash("admin123")
+            hashed_password = PasswordHasher.generate_password_hash("admin123")
             admin = User(
                 username="admin",
                 email="admin@example.com",
