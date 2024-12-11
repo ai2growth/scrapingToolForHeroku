@@ -1,3 +1,4 @@
+from flask import Flask
 from flask.cli import FlaskGroup
 from app import create_app
 from app.extensions import db, PasswordHasher
@@ -11,16 +12,26 @@ from sqlalchemy import inspect
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Create app and initialize extensions
-app = create_app()
-cli = FlaskGroup(app)
+def create_cli_app():
+    app = create_app()
+    return app
+
+app = create_cli_app()
 migrate = Migrate(app, db)
+
+# Create CLI group
+cli = FlaskGroup(create_app=create_cli_app)
+
+@cli.command()
+def db():
+    """Database migration commands"""
+    pass
 
 def reset_db():
     """Reset the database by creating fresh tables."""
     try:
         with app.app_context():
-            # For Heroku PostgreSQL, we drop all tables and recreate them
+            # Drop all tables and recreate them
             db.drop_all()
             logger.info("Dropped all tables")
 
@@ -53,12 +64,11 @@ def reset_db():
     except Exception as e:
         logger.error(f"Error during database reset: {str(e)}", exc_info=True)
         return False
-    
+
 def verify_db():
     """Verify the database state."""
     try:
         with app.app_context():
-            # Inspect database tables
             inspector = inspect(db.engine)
             tables = inspector.get_table_names()
             logger.info(f"Available tables: {tables}")
@@ -67,7 +77,6 @@ def verify_db():
                 logger.error("Users table is missing.")
                 return False
             
-            # Verify admin user exists
             admin = User.query.filter_by(username="admin").first()
             if admin:
                 logger.info("Admin user exists:")
