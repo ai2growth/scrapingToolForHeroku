@@ -1,8 +1,8 @@
 from flask import Blueprint, render_template, url_for, flash, redirect, request, current_app
-from app.extensions import db, PasswordHasher  # Changed from bcrypt to PasswordHasher
+from app.extensions import db, PasswordHasher
 from app.models import User
 from flask_login import login_user, current_user, logout_user, login_required
-from app.forms import LoginForm, ForgotPasswordForm, ResetPasswordForm, RegisterForm  # Fixed import
+from app.forms import LoginForm, ForgotPasswordForm, ResetPasswordForm, RegisterForm
 from app.utils import send_password_reset_email
 from datetime import datetime
 import logging
@@ -19,7 +19,7 @@ def login():
     form = LoginForm()
     if form.validate_on_submit():
         user = User.query.filter_by(email=form.email.data).first()
-        if user and PasswordHasher.check_password_hash(user.password, form.password.data):  # Changed from bcrypt
+        if user and PasswordHasher.check_password_hash(user.password, form.password.data):
             login_user(user)
             flash('Login successful!', 'success')
             next_page = request.args.get('next')
@@ -76,16 +76,15 @@ def reset_password(token):
             flash('Passwords do not match.', 'danger')
             return render_template('auth/reset_password.html', form=form)
 
-        # Update user's password and clear the reset token
-        user.password = PasswordHasher.generate_password_hash(form.password.data)  # Changed from bcrypt
+        user.password = PasswordHasher.generate_password_hash(form.password.data)
         user.reset_token = None
         user.reset_token_expiry = None
         db.session.commit()
-                flash('Your password has been reset successfully.', 'success')
+
+        flash('Your password has been reset successfully.', 'success')
         return redirect(url_for('auth.login'))
 
     return render_template('auth/reset_password.html', form=form)
-
 @bp.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
