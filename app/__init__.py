@@ -1,8 +1,9 @@
-# app/__init__.py
+# __init__.py
 from flask import Flask
 from .config import Config
-from .extensions import db, login_manager, bcrypt, socketio
+from app.extensions import db, login_manager, bcrypt, mail, socketio 
 import logging
+from app.utils.memory import get_memory_usage
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -11,16 +12,24 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
+    @app.before_request
+    def check_memory():
+        memory_usage = get_memory_usage()
+        if memory_usage > 500:  # 500MB threshold
+            app.logger.warning(f"High memory usage: {memory_usage:.2f}MB")
+
+
     # Initialize extensions
     db.init_app(app)
     login_manager.init_app(app)
     bcrypt.init_app(app)
+    mail.init_app(app)
     socketio.init_app(
         app,
         cors_allowed_origins="*",
         async_mode='threading',
         logger=True,
-        engineio_logger=True
+        engineio_logger=True        
     )
 
     # Configure login manager
@@ -45,16 +54,16 @@ def create_app():
         try:
             from .routes.auth import bp as auth_bp
             from .routes.main import bp as main_bp
-            
-            # Add URL prefixes if needed
+
+            # Register blueprints with URL prefixes if needed
             app.register_blueprint(auth_bp, url_prefix='/auth')
-            app.register_blueprint(main_bp, url_prefix='/')  # or no prefix for main routes
-            
+            app.register_blueprint(main_bp, url_prefix='/')
+
             # Log registered routes
             logger.debug("Registered routes:")
             for rule in app.url_map.iter_rules():
                 logger.debug(f"{rule.endpoint}: {rule.rule}")
-                
+
         except Exception as e:
             logger.error(f"Error registering blueprints: {str(e)}")
             raise

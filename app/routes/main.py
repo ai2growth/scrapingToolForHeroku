@@ -1,6 +1,5 @@
-
+from flask import Flask 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-# Standard Library Imports
 import os
 import uuid
 import json
@@ -10,7 +9,7 @@ import threading
 import io
 from datetime import datetime, timedelta
 import re
-
+from app.utils.memory import optimize_memory, check_memory_threshold, get_memory_usage
 # Third-Party Library Imports
 import requests
 import pandas as pd
@@ -18,22 +17,39 @@ import openai
 from werkzeug.utils import secure_filename
 from bs4 import BeautifulSoup
 from flask import (
-    Flask,
+    Blueprint,
     render_template,
     request,
     jsonify,
     current_app,
-    Blueprint,
-    make_response
+    make_response,
+    redirect,
+    url_for,
+    flash
 )
+from flask_login import login_required, current_user, login_user, logout_user
+from flask_mail import Message
 
-from flask_login import LoginManager, login_required, current_user, UserMixin
-from flask_socketio import SocketIO
-from flask_sqlalchemy import SQLAlchemy
+# Local Application Imports
+from app.extensions import db, mail, socketio
+from app.forms import ForgotPasswordForm
+from app.models import User
 
 # Disable retries for requests and urllib3
 import urllib3.util.retry
 from requests.adapters import HTTPAdapter
+
+# Define Blueprint
+bp = Blueprint('main', __name__)
+
+@bp.errorhandler(404)
+def not_found_error(error):
+    return render_template('errors/404.html'), 404
+
+@bp.errorhandler(500)
+def internal_error(error):
+    db.session.rollback()
+    return render_template('errors/500.html'), 500
 
 # Attempt to import ScrapeOps client
 try:
@@ -45,60 +61,10 @@ except ImportError:
 
 # Constants
 SCRAPEOPS_API_KEY = '0139316f-c2f9-44ad-948c-f7a3439511c2'
-CHUNK_SIZE = 10  # Example value; can be adjusted based on user tier
-MAX_WORKERS = 10  # Example value; can be adjusted based on user tier
+MAX_WORKERS = 10  
+MEMORY_THRESHOLD = 500  
+CHUNK_SIZE = 100  
 
-# Initialize Flask app
-app = Flask(__name__)
-app.config.from_object('app.config.Config')  # Ad
-
-# Configure Flask app
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///smartscrape.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config.update(
-    #SECRET_KEY='your_secret_key_here',
-    UPLOAD_FOLDER=os.path.abspath(os.path.join(os.getcwd(), 'uploads')),
-    DOWNLOADS_FOLDER=os.path.abspath(os.path.join(os.getcwd(), 'downloads')),
-    MAX_CONTENT_LENGTH=16 * 1024 * 1024  # 16MB max file size
-)
-
-# Initialize SQLAlchemy
-db = SQLAlchemy(app)
-
-# User Model
-class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(120), nullable=False)
-    scrapes_used = db.Column(db.Integer, default=0)
-    scrape_limit = db.Column(db.Integer, default=20000)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    last_login = db.Column(db.DateTime)
-
-    def __repr__(self):
-        return f'<User {self.username}>'
-
-# Create all database tables
-with app.app_context():
-    db.create_all()
-
-# Ensure directories exist
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-os.makedirs(app.config['DOWNLOADS_FOLDER'], exist_ok=True)
-
-# Initialize Flask-Login
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = 'login'  # Replace with your actual login view
-
-# Initialize SocketIO
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
-
-# Define Blueprint
-bp = Blueprint('main', __name__)
-
-# Register Blueprint
-app.register_blueprint(bp)
 
 # Configure logging
 logging.basicConfig(
@@ -140,6 +106,22 @@ def get_scrape_count():
         'scrapes_used': current_user.scrapes_used,
         'scrape_limit': current_user.scrape_limit
     })
+
+
+def allowed_file(filename):
+    """Check if the file has an allowed extension."""
+    ALLOWED_EXTENSIONS = {'csv'}
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+
+def log_memory_usage(message=""):
+    """Log current memory usage with optional message."""
+    try:
+        memory_usage = get_memory_usage()
+        logger.info(f"Memory usage {message}: {memory_usage:.2f}MB")
+    except Exception as e:
+        logger.error(f"Failed to log memory usage: {str(e)}")
 
 def process_gpt_analysis(scraped_content, instructions, gpt_model):
     """Process GPT analysis in parallel with scraping."""
@@ -253,13 +235,6 @@ def scrape_single_site(url, scrapeops_client=None):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-from app import create_app, db
-from app.models import User
-import logging
-
-# Set up logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
 
 def update_user_scrape_count(current_user, total_rows):
     """
@@ -327,6 +302,35 @@ if __name__ == "__main__":
             logger.warning(f"User '{username}' not found in the database.")
 
 
+
+
+def process_chunk(chunk, data):
+    """Process a chunk of data with memory optimization."""
+    try:
+        chunk_results = []
+        scrapeops_client = get_scrapeops_client()
+        
+        for _, row in chunk.iterrows():
+            # Check memory before processing each row
+            if not check_memory_threshold(threshold_mb=500):
+                optimize_memory()
+                
+            result = handle_single_row_with_additional_columns(
+                row=row,
+                instructions=data.get('instructions'),
+                additional_columns=data.get('additional_columns', []),
+                gpt_model=data.get('gpt_model', 'gpt-3.5-turbo'),
+                scrapeops_client=scrapeops_client
+            )
+            chunk_results.append(result)
+            
+        return chunk_results
+    except Exception as e:
+        logger.error(f"Chunk processing error: {str(e)}")
+        return []
+
+
+
 # Configuration for Scraping
 # =========================
 
@@ -382,12 +386,196 @@ def clean_results(results_list):
         if all(any(pattern in str(val) for pattern in error_patterns) 
                for val in df[col].dropna()):
             df = df.drop(columns=[col])
-    
-    return df
+        return df
+
 
 # =========================
 # Routes
 # =========================
+@bp.route('/process', methods=['POST'])
+@login_required
+def process():
+    """Handle processing with optimized multithreading and memory management."""
+    try:
+        # Log memory usage at the start
+        log_memory_usage("before processing")
+
+        # Memory check and optimization
+        if not check_memory_threshold(threshold_mb=500):
+            optimize_memory()
+            log_memory_usage("after memory optimization")
+
+        # Get SocketIO instance and incoming request data
+        socketio_instance = get_socketio()
+        data = request.json
+
+        # Initialize ScrapeOps client and OpenAI API key
+        scrapeops_client = get_scrapeops_client()
+        openai.api_key = data.get('api_key')
+
+        # Load CSV file and clean unnamed columns
+        df = pd.read_csv(data['file_path'])
+        df = df.loc[:, ~df.columns.str.contains('^Unnamed:')]
+
+        # Apply row limit
+        row_limit = min(
+            int(data.get('row_limit', 20000)),
+            current_user.scrape_limit - current_user.scrapes_used,
+            20000
+        )
+        df = df.head(row_limit)
+
+        total_rows = len(df)
+        results = []
+        processed = 0
+
+        # Log memory after loading the data
+        log_memory_usage("after loading CSV")
+
+        # Get optimized parameters for this user
+        scraping_params = optimize_scraping_params(current_user)
+
+        # Process in chunks to manage memory
+        chunk_size = 100
+        for i in range(0, total_rows, chunk_size):
+            chunk = df[i:i + chunk_size]
+
+            # Process chunk with ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=scraping_params['max_workers']) as executor:
+                futures = {
+                    executor.submit(
+                        handle_single_row_with_additional_columns,
+                        row=row,
+                        instructions=data.get('instructions'),
+                        additional_columns=data.get('additional_columns', []),
+                        gpt_model=data.get('gpt_model', 'gpt-3.5-turbo'),
+                        scrapeops_client=scrapeops_client
+                    ): idx
+                    for idx, row in chunk.iterrows()
+                }
+
+                for future in as_completed(futures):
+                    try:
+                        result = future.result()
+                        results.append(result)
+                        processed += 1
+
+                        # Update progress
+                        progress = int((processed / total_rows) * 100)
+                        socketio_instance.emit('processing_progress', {
+                            'current': processed,
+                            'total': total_rows,
+                            'progress': progress,
+                            'status': 'processing'
+                        }, namespace='/')
+
+                    except Exception as e:
+                        logger.error(f"Error processing row: {str(e)}")
+                        results.append({
+                            'Websites': df.iloc[futures[future]]['Websites'],
+                            'Error': str(e)
+                        })
+
+            # Log memory after processing each chunk
+            log_memory_usage(f"after processing chunk {i // chunk_size + 1}")
+
+            # Optimize memory after every 5 chunks
+            if i % (chunk_size * 5) == 0:
+                optimize_memory()
+                log_memory_usage("after memory optimization during chunk processing")
+
+        # Create DataFrame from results
+        results_df = pd.DataFrame(results)
+
+        # Define column order
+        column_order = ['Websites']
+
+        # Add original columns (excluding completely empty ones)
+        df_no_empty = df.dropna(axis=1, how='all')  # Remove completely empty columns
+        original_cols = [col for col in df_no_empty.columns if col != 'Websites']
+        column_order.extend(original_cols)
+
+        # Add specific columns in the desired order
+        if 'Scraped_Content' in results_df.columns:
+            column_order.append('Scraped_Content')
+
+        if 'Analysis' in results_df.columns:
+            column_order.append('Analysis')
+
+        # Include additional analysis columns
+        additional_columns = data.get('additional_columns', [])
+        for column in additional_columns:
+            if column.get('name') and column['name'] in results_df.columns:
+                column_order.append(column['name'])
+
+        if 'Error' in results_df.columns:
+            column_order.append('Error')
+
+        # Merge original and results DataFrames
+        merged_df = pd.merge(
+            df[['Websites'] + original_cols],  # Include all original columns
+            results_df,
+            on='Websites',
+            how='left'
+        )
+
+        # Select only existing columns and drop empty ones
+        final_cols = [col for col in column_order if col in merged_df.columns]
+        final_df = merged_df[final_cols]
+
+        # Clean up remaining unnamed columns and replace NaN with empty string in string columns
+        final_df = final_df.loc[:, ~final_df.columns.str.contains('^Unnamed:')]
+        string_columns = final_df.select_dtypes(include=['object']).columns
+        final_df[string_columns] = final_df[string_columns].fillna('')
+
+        # Log memory after creating results DataFrame
+        log_memory_usage("after creating results DataFrame")
+
+        # Final memory optimization
+        optimize_memory()
+        log_memory_usage("after final memory optimization")
+
+        # Update scrape count using existing function
+        try:
+            result = update_user_scrape_count(current_user, total_rows)
+
+            # Emit updated scrape count via Socket.IO
+            socketio_instance.emit('scrape_count_updated', {
+                'scrapes_used': result['scrapes_used'],
+                'scrape_limit': result['scrape_limit']
+            }, namespace='/')
+
+            logger.info("Scrape count updated and emitted successfully")
+        except Exception as e:
+            logger.error(f"Failed to update scrape count: {str(e)}")
+
+        # Create response with CSV content
+        output = io.StringIO()
+        final_df.to_csv(output, index=False)
+        output.seek(0)
+
+        response = make_response(output.getvalue())
+        response.headers.update({
+            'Content-Type': 'text/csv',
+            'Content-Disposition': f'attachment; filename=analysis_results_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        })
+
+        logger.info(f"Processing complete. Processed {total_rows} rows with columns: {final_df.columns.tolist()}")
+        return response
+
+    except Exception as e:
+        # Log memory usage on error
+        log_memory_usage("on error")
+        logger.error(f"Processing error: {str(e)}")
+
+        # Attempt memory optimization on error
+        try:
+            optimize_memory()
+        except:
+            pass
+
+        return jsonify({'error': str(e)}), 500
+
 
 @bp.route('/')
 def index():
@@ -397,6 +585,13 @@ def index():
 @login_required
 def dashboard():
     return render_template('user_dashboard.html')
+
+
+@bp.route('/profile')
+@login_required
+def profile():
+    return render_template('profile.html')
+
 @bp.route('/upload', methods=['POST'])
 @login_required
 def upload():
@@ -417,8 +612,7 @@ def upload():
             filename = secure_filename(file.filename)
             unique_suffix = uuid.uuid4().hex
             filename = f"{unique_suffix}_{filename}"
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
+            file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
             try:
                 file.save(file_path)
                 logger.info(f"File saved successfully at: {file_path}")
@@ -486,156 +680,24 @@ def upload():
     except Exception as e:
         logger.error(f"Unexpected error during upload: {str(e)}")
         return jsonify({"error": "An unexpected error occurred. Please try again."}), 500
-def allowed_file(filename):
-    """Check if the file has an allowed extension."""
-    ALLOWED_EXTENSIONS = {'csv'}
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@bp.route('/process', methods=['POST'])
-@login_required
-def process():
-    """Handle processing with optimized multithreading and proper column ordering."""
-    try:
-        # Get SocketIO instance and incoming request data
-        socketio_instance = get_socketio()
-        data = request.json
 
-        # Initialize ScrapeOps client and OpenAI API key
-        scrapeops_client = get_scrapeops_client()
-        openai.api_key = data.get('api_key')
+@bp.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    form = ForgotPasswordForm()
+    if form.validate_on_submit():
+        user = User.query.filter_by(email=form.email.data).first()
+        if user:
+            # Generate password reset token
+            token = user.get_reset_token()
+            # Send email with reset link
+            flash('Password reset instructions have been sent to your email.', 'info')
+            return redirect(url_for('auth.login'))
+        flash('Email address not found.', 'error')
+    return render_template('auth/forgot_password.html', form=form)
 
-        # Load CSV file and clean unnamed columns
-        df = pd.read_csv(data['file_path'])
-        df = df.loc[:, ~df.columns.str.contains('^Unnamed:')]
-
-        # Apply row limit
-        row_limit = min(
-            int(data.get('row_limit', 20000)),
-            current_user.scrape_limit - current_user.scrapes_used,
-            20000
-        )
-        df = df.head(row_limit)
-
-        total_rows = len(df)
-        results = []
-        processed = 0
-
-        # Get optimized parameters for this user
-        scraping_params = optimize_scraping_params(current_user)
-
-        # Process rows using ThreadPoolExecutor with user-specific max_workers
-        with ThreadPoolExecutor(max_workers=scraping_params['max_workers']) as executor:
-            futures = {
-                executor.submit(
-                    handle_single_row_with_additional_columns,
-                    row=row,
-                    instructions=data.get('instructions'),
-                    additional_columns=data.get('additional_columns', []),
-                    gpt_model=data.get('gpt_model', 'gpt-3.5-turbo'),
-                    scrapeops_client=scrapeops_client
-                ): idx
-                for idx, row in df.iterrows()
-            }
-
-            for future in as_completed(futures):
-                try:
-                    result = future.result()
-                    results.append(result)
-                    processed += 1
-
-                    # Update progress
-                    progress = int((processed / total_rows) * 100)
-                    socketio_instance.emit('processing_progress', {
-                        'current': processed,
-                        'total': total_rows,
-                        'progress': progress,
-                        'status': 'processing'
-                    }, namespace='/')
-
-                except Exception as e:
-                    logger.error(f"Error processing row: {str(e)}")
-                    results.append({
-                        'Websites': df.iloc[futures[future]]['Websites'],
-                        'Error': str(e)
-                    })
-
-        # Create DataFrame from results
-        results_df = pd.DataFrame(results)
-
-        # Define column order
-        column_order = ['Websites']
-
-        # Add original columns
-        original_cols = [col for col in df.columns if col != 'Websites']
-        column_order.extend(original_cols)
-
-        # Add specific columns in the desired order
-        if 'Scraped_Content' in results_df.columns:
-            column_order.append('Scraped_Content')
-
-        if 'Analysis' in results_df.columns:
-            column_order.append('Analysis')
-
-        # Include additional analysis columns
-        additional_columns = data.get('additional_columns', [])
-        for column in additional_columns:
-            if column.get('name') and column['name'] in results_df.columns:
-                column_order.append(column['name'])
-
-        if 'Error' in results_df.columns:
-            column_order.append('Error')
-
-        # Merge original and results DataFrames
-        merged_df = pd.merge(
-            df[['Websites'] + original_cols],
-            results_df,
-            on='Websites',
-            how='left'
-        )
-
-        # Select only existing columns and drop empty ones
-        final_cols = [col for col in column_order if col in merged_df.columns]
-        final_df = merged_df[final_cols].dropna(axis=1, how='all')
-
-        # Clean up remaining unnamed columns and replace NaN with empty string in string columns
-        final_df = final_df.loc[:, ~final_df.columns.str.contains('^Unnamed:')]
-        string_columns = final_df.select_dtypes(include=['object']).columns
-        final_df[string_columns] = final_df[string_columns].fillna('')
-
-        # Save DataFrame to CSV
-        output = io.StringIO()
-        final_df.to_csv(output, index=False, encoding='utf-8-sig')
-        output.seek(0)
-
-        # Update user's scrape count
-        logger.info(f"Updating scrape count for {current_user.username} - Adding {total_rows} scrapes")
-        current_user.scrapes_used += total_rows
-        db.session.commit()
-
-        # Emit updated scrape count via Socket.IO
-        socketio_instance.emit('scrape_count_updated', {
-            'scrapes_used': current_user.scrapes_used,
-            'scrape_limit': current_user.scrape_limit
-        }, namespace='/')
-
-        # Create response with CSV content
-        response = make_response(output.getvalue())
-        response.headers.update({
-            'Content-Type': 'text/csv',
-            'Content-Disposition': f'attachment; filename=analysis_results_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-        })
-
-        logger.info(f"Processing complete. Processed {total_rows} rows with columns: {final_df.columns.tolist()}")
-        return response
-
-    except Exception as e:
-        logger.error(f"Processing error: {str(e)}")
-        try:
-            socketio_instance.emit('processing_error', {'message': str(e)}, namespace='/')
-        except Exception as emit_error:
-            logger.error(f"Failed to emit error event: {str(emit_error)}")
-        return jsonify({'error': str(e)}), 500
-# Move this outside and unindent it (should be at the same level as your routes)
 if __name__ == '__main__':
+    from app import create_app
+    app = create_app()
     socketio.run(app, debug=True)
 

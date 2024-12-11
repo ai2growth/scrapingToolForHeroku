@@ -1,14 +1,13 @@
-# config.py
 import os
 from pathlib import Path
-from datetime import timedelta  # Add this import at the top
+from datetime import timedelta
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'AqBFzxtJbkYMZm6GfsyF!#'
     
-    # Session configuration (add these lines)
+    # Session configuration
     SESSION_COOKIE_SECURE = True  # For HTTPS
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
@@ -24,11 +23,11 @@ class Config:
         # Local SQLite database
         SQLALCHEMY_DATABASE_URI = f'sqlite:///{os.path.join(basedir, "instance", "app.db")}'
     
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    
     # Ensure instance folder exists
     INSTANCE_PATH = os.path.join(basedir, 'instance')
     Path(INSTANCE_PATH).mkdir(exist_ok=True)
-    
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # File upload settings
     UPLOAD_FOLDER = os.path.join(basedir, 'uploads')
@@ -36,5 +35,17 @@ class Config:
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
     
     # Create necessary directories
-    Path(UPLOAD_FOLDER).mkdir(exist_ok=True)
-    Path(DOWNLOADS_FOLDER).mkdir(exist_ok=True)
+    Path(UPLOAD_FOLDER).mkdir(parents=True, exist_ok=True)
+    Path(DOWNLOADS_FOLDER).mkdir(parents=True, exist_ok=True)
+
+    # Other optional configurations
+    DEBUG = os.environ.get('DEBUG', 'False').lower() in ['true', '1']
+    TESTING = os.environ.get('TESTING', 'False').lower() in ['true', '1']
+
+    # Gmail Configuration
+    MAIL_SERVER = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+    MAIL_PORT = int(os.environ.get('MAIL_PORT', 587))
+    MAIL_USE_TLS = os.environ.get('MAIL_USE_TLS', True)
+    MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
+    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
+    MAIL_DEFAULT_SENDER = os.environ.get('MAIL_USERNAME')

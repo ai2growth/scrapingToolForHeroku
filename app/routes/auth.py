@@ -3,9 +3,10 @@ from flask_login import login_user, logout_user, current_user, login_required
 from datetime import datetime, timedelta
 import secrets
 import logging
-
+from app.forms import LoginForm, ForgotPasswordForm, ResetPasswordForm, RegisterForm
 from app.models import User
 from app.extensions import db, bcrypt
+from app.utils import send_password_reset_email  
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +17,10 @@ def login():
     if current_user.is_authenticated:
         return redirect(url_for('main.index'))
 
-    if request.method == 'POST':
-        email = request.form.get('email')
-        password = request.form.get('password')
-        user = User.query.filter_by(email=email).first()
-
-        if user and bcrypt.check_password_hash(user.password, password):
+    form = LoginForm()  # Use the LoginForm
+    if form.validate_on_submit():
+        user = User.query.filter_by(email=form.email.data).first()
+        if user and bcrypt.check_password_hash(user.password, form.password.data):
             login_user(user)
             flash('Login successful!', 'success')
             next_page = request.args.get('next')
@@ -29,7 +28,7 @@ def login():
         else:
             flash('Invalid email or password', 'danger')
 
-    return render_template('auth/login.html')
+    return render_template('auth/login.html', form=form)  # Pass form to template
 
 @bp.route('/logout')
 @login_required
@@ -40,33 +39,28 @@ def logout():
 
 @bp.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():
-    # If user is logged in, no need to reset password
     if current_user.is_authenticated:
         return redirect(url_for('main.index'))
 
-    if request.method == 'POST':
-        email = request.form.get('email')
-        user = User.query.filter_by(email=email).first()
-
+    form = ForgotPasswordForm()
+    if form.validate_on_submit():
+        user = User.query.filter_by(email=form.email.data).first()
         if user:
-            # Generate a secure reset token
-            token = secrets.token_urlsafe(32)
-            user.reset_token = token
-            user.reset_token_expiry = datetime.utcnow() + timedelta(hours=1)
-            db.session.commit()
-
-            # In a production environment, send an email with the reset token URL:
-            # reset_url = url_for('auth.reset_password', token=token, _external=True)
-            # send_email with reset_url
-
-            flash('Password reset link has been sent to your email.', 'success')
+            token = user.get_reset_token()
+            reset_url = url_for('auth.reset_password', token=token, _external=True)
+            try:
+                send_password_reset_email(user, reset_url)
+                flash('Password reset instructions have been sent to your email.', 'info')
+            except Exception as e:
+                current_app.logger.error(f"Failed to send password reset email: {str(e)}")
+                flash('Error sending password reset email. Please try again later.', 'danger')
             return redirect(url_for('auth.login'))
-
-        # Do not reveal whether the email exists or not for security reasons
-        flash('If this email is registered, you will receive reset instructions.', 'info')
+        
+        # Don't reveal if email exists or not
+        flash('If an account exists with that email, a password reset link has been sent.', 'info')
         return redirect(url_for('auth.login'))
 
-    return render_template('auth/forgot_password.html')
+    return render_template('auth/forgot_password.html', form=form)
 
 @bp.route('/reset_password/<token>', methods=['GET', 'POST'])
 def reset_password(token):
@@ -74,22 +68,18 @@ def reset_password(token):
         return redirect(url_for('main.index'))
 
     user = User.query.filter_by(reset_token=token).first()
-
-    # Check token validity
     if not user or user.reset_token_expiry < datetime.utcnow():
         flash('Invalid or expired reset link.', 'danger')
         return redirect(url_for('auth.forgot_password'))
 
-    if request.method == 'POST':
-        password = request.form.get('password')
-        confirm_password = request.form.get('confirm_password')
-
-        if password != confirm_password:
+    form = ResetPasswordForm()  # Use the ResetPasswordForm
+    if form.validate_on_submit():
+        if form.password.data != form.confirm_password.data:
             flash('Passwords do not match.', 'danger')
-            return render_template('auth/reset_password.html')
+            return render_template('auth/reset_password.html', form=form)
 
-        # Update user's password and clear the token
-        user.password = bcrypt.generate_password_hash(password).decode('utf-8')
+        # Update user's password and clear the reset token
+        user.password = bcrypt.generate_password_hash(form.password.data).decode('utf-8')
         user.reset_token = None
         user.reset_token_expiry = None
         db.session.commit()
@@ -97,33 +87,34 @@ def reset_password(token):
         flash('Your password has been reset successfully.', 'success')
         return redirect(url_for('auth.login'))
 
-    return render_template('auth/reset_password.html')
+    return render_template('auth/reset_password.html', form=form)
 
 @bp.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
         return redirect(url_for('main.index'))
 
-    if request.method == 'POST':
-        username = request.form.get('username')
-        email = request.form.get('email')
-        password = request.form.get('password')
-
-        if User.query.filter_by(username=username).first():
+    form = RegisterForm()
+    if form.validate_on_submit():
+        if User.query.filter_by(username=form.username.data).first():
             flash('Username already exists', 'danger')
-            return render_template('auth/register.html')
+            return render_template('auth/register.html', form=form)
 
-        if User.query.filter_by(email=email).first():
+        if User.query.filter_by(email=form.email.data).first():
             flash('Email already registered', 'danger')
-            return render_template('auth/register.html')
+            return render_template('auth/register.html', form=form)
 
-        hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-        user = User(username=username, email=email, password=hashed_password)
-        
+        hashed_password = bcrypt.generate_password_hash(form.password.data).decode('utf-8')
+        user = User(
+            username=form.username.data,
+            email=form.email.data,
+            password=hashed_password
+        )
+
         db.session.add(user)
         db.session.commit()
 
         flash('Registration successful! Please login.', 'success')
         return redirect(url_for('auth.login'))
 
-    return render_template('auth/register.html')
+    return render_template('auth/register.html', form=form)
