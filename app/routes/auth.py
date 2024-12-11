@@ -1,12 +1,11 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
-from flask_login import login_user, logout_user, current_user, login_required
-from datetime import datetime, timedelta
-import secrets
-import logging
-from app.forms import LoginForm, ForgotPasswordForm, ResetPasswordForm, RegisterForm
+from flask import Blueprint, render_template, url_for, flash, redirect, request, current_app
+from app.extensions import db, PasswordHasher  # Changed from bcrypt to PasswordHasher
 from app.models import User
-from app.extensions import db, bcrypt
-from app.utils import send_password_reset_email  
+from flask_login import login_user, current_user, logout_user, login_required
+from app.forms import LoginForm, ForgotPasswordForm, ResetPasswordForm, RegisterForm  # Fixed import
+from app.utils import send_password_reset_email
+from datetime import datetime
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +16,10 @@ def login():
     if current_user.is_authenticated:
         return redirect(url_for('main.index'))
 
-    form = LoginForm()  # Use the LoginForm
+    form = LoginForm()
     if form.validate_on_submit():
         user = User.query.filter_by(email=form.email.data).first()
-        if user and bcrypt.check_password_hash(user.password, form.password.data):
+        if user and PasswordHasher.check_password_hash(user.password, form.password.data):  # Changed from bcrypt
             login_user(user)
             flash('Login successful!', 'success')
             next_page = request.args.get('next')
@@ -28,7 +27,7 @@ def login():
         else:
             flash('Invalid email or password', 'danger')
 
-    return render_template('auth/login.html', form=form)  # Pass form to template
+    return render_template('auth/login.html', form=form)
 
 @bp.route('/logout')
 @login_required
@@ -56,7 +55,6 @@ def forgot_password():
                 flash('Error sending password reset email. Please try again later.', 'danger')
             return redirect(url_for('auth.login'))
         
-        # Don't reveal if email exists or not
         flash('If an account exists with that email, a password reset link has been sent.', 'info')
         return redirect(url_for('auth.login'))
 
@@ -72,19 +70,18 @@ def reset_password(token):
         flash('Invalid or expired reset link.', 'danger')
         return redirect(url_for('auth.forgot_password'))
 
-    form = ResetPasswordForm()  # Use the ResetPasswordForm
+    form = ResetPasswordForm()
     if form.validate_on_submit():
         if form.password.data != form.confirm_password.data:
             flash('Passwords do not match.', 'danger')
             return render_template('auth/reset_password.html', form=form)
 
         # Update user's password and clear the reset token
-        user.password = bcrypt.generate_password_hash(form.password.data).decode('utf-8')
+        user.password = PasswordHasher.generate_password_hash(form.password.data)  # Changed from bcrypt
         user.reset_token = None
         user.reset_token_expiry = None
         db.session.commit()
-
-        flash('Your password has been reset successfully.', 'success')
+                flash('Your password has been reset successfully.', 'success')
         return redirect(url_for('auth.login'))
 
     return render_template('auth/reset_password.html', form=form)
@@ -96,25 +93,44 @@ def register():
 
     form = RegisterForm()
     if form.validate_on_submit():
-        if User.query.filter_by(username=form.username.data).first():
-            flash('Username already exists', 'danger')
-            return render_template('auth/register.html', form=form)
-
-        if User.query.filter_by(email=form.email.data).first():
-            flash('Email already registered', 'danger')
-            return render_template('auth/register.html', form=form)
-
-        hashed_password = PasswordHasher.generate_password_hash(form.password.data)
-        user = User(
-            username=form.username.data,
-            email=form.email.data,
-            password=hashed_password
-        )
-
-        db.session.add(user)
-        db.session.commit()
-
-        flash('Registration successful! Please login.', 'success')
-        return redirect(url_for('auth.login'))
-
+        try:
+            # Check if user already exists
+            if User.query.filter_by(username=form.username.data).first():
+                flash('Username already exists. Please choose a different one.', 'danger')
+                return render_template('auth/register.html', form=form)
+            
+            if User.query.filter_by(email=form.email.data).first():
+                flash('Email already registered. Please use a different one.', 'danger')
+                return render_template('auth/register.html', form=form)
+            
+            # Create new user
+            hashed_password = PasswordHasher.generate_password_hash(form.password.data)
+            user = User(
+                username=form.username.data,
+                email=form.email.data,
+                password=hashed_password,
+                scrape_limit=20000  # Default scrape limit
+            )
+            
+            db.session.add(user)
+            db.session.commit()
+            
+            flash('Your account has been created! You can now log in.', 'success')
+            return redirect(url_for('auth.login'))
+            
+        except Exception as e:
+            logger.error(f"Error during registration: {str(e)}")
+            db.session.rollback()
+            flash('An error occurred during registration. Please try again.', 'danger')
+            
     return render_template('auth/register.html', form=form)
+
+# Error handlers
+@bp.errorhandler(404)
+def not_found_error(error):
+    return render_template('errors/404.html'), 404
+
+@bp.errorhandler(500)
+def internal_error(error):
+    db.session.rollback()
+    return render_template('errors/500.html'), 500
