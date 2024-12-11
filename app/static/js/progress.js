@@ -265,76 +265,28 @@ function initializeApp() {
         showError(data.message);
         stopProgressMonitoring();
     });
-    
-    uploadForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        console.log('Upload form submitted');
-    
-        if (!fileInput.files[0]) {
-            showError('Please select a file');
-            return;
-        }
-    
-        const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
-    
-        try {
-            uploadButton.disabled = true;
-            uploadButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading...';
-    
-            const response = await fetch('/upload', {
-                method: 'POST',
-                body: formData
-            });
-    
-            if (response.status === 302) {
-                console.warn('Redirect detected. Navigating to login page...');
-                window.location.href = '/auth/login';
-                return;
-            }
-    
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Upload failed');
-            }
-    
-            const data = await response.json();
-            if (data.file_path) {
-                document.getElementById('file_path').value = data.file_path;
-                showNotification('File uploaded successfully! Please configure your analysis settings.', 'success');
-                configSection.style.display = 'block';
-                processButton.disabled = false;
-            }
-        } catch (error) {
-            console.error('Upload error:', error);
-            showError(error.message || 'An unexpected error occurred during upload');
-        } finally {
-            uploadButton.disabled = false;
-            uploadButton.innerHTML = 'Upload & Configure';
-        }
-    });
-    
+
     processForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-
+    
         if (!verifySocketConnection()) {
             showError('Not connected to server. Please refresh the page.');
             return;
         }
-
+    
         const apiKey = document.getElementById('api_key').value;
         const instructions = document.getElementById('instructions').value;
-
+    
         if (!apiKey || !instructions) {
             showError('Please complete all required fields');
             return;
         }
-
+    
         processButton.disabled = true;
         processButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
-
+    
         startProgressMonitoring();
-
+    
         try {
             const payload = {
                 file_path: document.getElementById('file_path').value,
@@ -344,7 +296,8 @@ function initializeApp() {
                 row_limit: parseInt(document.getElementById('row-limit').value) || null,
                 additional_columns: []
             };
-
+    
+            // Gather additional columns data
             document.querySelectorAll('.additional-column').forEach(column => {
                 const name = column.querySelector('.column-name').value;
                 const instructions = column.querySelector('.column-instructions').value;
@@ -352,16 +305,25 @@ function initializeApp() {
                     payload.additional_columns.push({ name, instructions });
                 }
             });
+    
             const response = await fetch('/process', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(payload),
+                credentials: 'include',
+                redirect: 'follow'
             });
-
+    
+            // Check if we're being redirected to login
+            if (response.redirected) {
+                window.location.href = response.url;
+                return;
+            }
+    
             if (!response.ok) {
                 throw new Error(await response.text());
             }
-
+    
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -371,7 +333,7 @@ function initializeApp() {
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
-
+    
             showNotification('Processing complete! File downloaded.', 'success');
         } catch (error) {
             console.error('Processing error:', error);
@@ -383,6 +345,57 @@ function initializeApp() {
             setTimeout(resetUI, 5000);
         }
     });
+ 
+processForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    if (!verifySocketConnection()) {
+        showError('Not connected to server. Please refresh the page.');
+        return;
+    }
+
+    const apiKey = document.getElementById('api_key').value;
+    const instructions = document.getElementById('instructions').value;
+
+    if (!apiKey || !instructions) {
+        showError('Please complete all required fields');
+        return;
+    }
+
+    processButton.disabled = true;
+    processButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
+
+    startProgressMonitoring();
+
+    try {
+        const payload = {
+            file_path: document.getElementById('file_path').value,
+            api_key: apiKey,
+            instructions: instructions,
+            gpt_model: document.getElementById('gpt_model').value,
+            row_limit: parseInt(document.getElementById('row-limit').value) || null,
+            additional_columns: []
+        };
+
+        // ... rest of your code ...
+
+        const response = await fetch('/process', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            credentials: 'include',
+            redirect: 'follow'
+        });
+
+        // Check if we're being redirected to login
+        if (response.redirected) {
+            window.location.href = response.url;
+            return;
+        }
+
+     
+
+
     // Add the additional columns handler
     numAdditionalColumns.addEventListener('change', () => {
         additionalColumnsContainer.innerHTML = '';
