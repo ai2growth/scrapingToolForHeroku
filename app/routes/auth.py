@@ -104,7 +104,7 @@ def register():
             flash('Email already registered', 'danger')
             return render_template('auth/register.html', form=form)
 
-        hashed_password = bcrypt.generate_password_hash(form.password.data).decode('utf-8')
+        hashed_password = PasswordHasher.generate_password_hash(form.password.data)
         user = User(
             username=form.username.data,
             email=form.email.data,
