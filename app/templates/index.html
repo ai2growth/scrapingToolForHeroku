@@ -1,373 +1,245 @@
-{% extends "base.html" %}
+<!DOCTYPE html>
+<html lang="en">
 
-{% block title %}Smartscrape - Enrich and Categorize Your Website List{% endblock %}
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartScrape - Enrich and Categorize Your Website List</title>
+        <!-- CSS -->
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+        <link href="{{ url_for('static', filename='css/progress.css') }}" rel="stylesheet">
 
-{% block scripts %}
-<!-- Add Socket.IO client before your custom script -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+        <!-- JavaScript -->
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+        <script src="{{ url_for('static', filename='js/progress.js') }}"></script>
+</head>
 
-<script>
-const socket = io();
-</script>
-
-<!-- Add this inside your HTML template, after including Socket.IO and before the closing body tag -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const socket = io();
-    const uploadForm = document.getElementById('upload-form');
-    const processForm = document.getElementById('processForm');
-    const errorDiv = document.getElementById('error-message');
-
-    // Hide error message initially
-    errorDiv.style.display = 'none';
-
-    function showError(message) {
-        errorDiv.textContent = message;
-        errorDiv.style.display = 'block';
-    }
-
-    if (uploadForm) {
-        uploadForm.addEventListener('submit', async function(e) {
-            e.preventDefault();
-            console.log('Upload form submitted');
-
-            const formData = new FormData(this);
-            console.log('Sending file upload request...');
-
-            try {
-                const response = await fetch('/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-                console.log('Response status:', response.status);
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                const data = await response.json();
-                console.log('Upload response:', data);
-
-                if (data.file_path) {
-                    document.getElementById('file_path').value = data.file_path;
-                    // Updated line: now calling populateColumnCheckboxes with `data` instead of `data.columns`
-                    populateColumnCheckboxes(data);
-                    document.getElementById('config-section').style.display = 'block';
-                }
-            } catch (error) {
-                console.error('Upload error:', error);
-                showError('Error uploading file: ' + error.message);
-            }
-        });
-    } else {
-        console.error('Upload form not found!');
-    }
-
-    function populateColumnCheckboxes(data) {
-        console.log('Populating columns:', data);
-        const container = document.getElementById('column-checkboxes');
-        container.innerHTML = ''; // Clear existing checkboxes
-
-        if (data.organized_columns) {
-            // Handle organized columns structure
-            Object.entries(data.organized_columns).forEach(([group, columns]) => {
-                if (columns.length > 0) {
-                    const groupHeader = document.createElement('h6');
-                    groupHeader.className = 'mt-3 mb-2';
-                    groupHeader.textContent = group;
-                    container.appendChild(groupHeader);
-
-                    columns.forEach(column => {
-                        const div = document.createElement('div');
-                        div.className = 'form-check ms-3';
-
-                        const input = document.createElement('input');
-                        input.type = 'checkbox';
-                        input.className = 'form-check-input';
-                        input.id = `column-${column}`;
-                        input.name = 'columns';
-                        input.value = column;
-
-                        const label = document.createElement('label');
-                        label.className = 'form-check-label';
-                        label.htmlFor = `column-${column}`;
-                        label.textContent = column;
-
-                        div.appendChild(input);
-                        div.appendChild(label);
-                        container.appendChild(div);
-                    });
-                }
-            });
-
-            const buttonGroup = document.createElement('div');
-            buttonGroup.className = 'btn-group mt-3';
-
-            const selectAllBtn = document.createElement('button');
-            selectAllBtn.type = 'button';
-            selectAllBtn.className = 'btn btn-sm btn-outline-primary';
-            selectAllBtn.textContent = 'Select All';
-            selectAllBtn.onclick = function() {
-                document.querySelectorAll('input[name="columns"]').forEach(cb => cb.checked = true);
-            };
-
-            const selectNoneBtn = document.createElement('button');
-            selectNoneBtn.type = 'button';
-            selectNoneBtn.className = 'btn btn-sm btn-outline-secondary';
-            selectNoneBtn.textContent = 'Select None';
-            selectNoneBtn.onclick = function() {
-                document.querySelectorAll('input[name="columns"]').forEach(cb => cb.checked = false);
-            };
-
-            buttonGroup.appendChild(selectAllBtn);
-            buttonGroup.appendChild(selectNoneBtn);
-            container.insertBefore(buttonGroup, container.firstChild);
-        } else {
-            // Fallback for simple column list
-            data.columns.forEach(column => {
-                const div = document.createElement('div');
-                div.className = 'form-check';
-
-                const input = document.createElement('input');
-                input.type = 'checkbox';
-                input.className = 'form-check-input';
-                input.id = `column-${column}`;
-                input.name = 'columns';
-                input.value = column;
-
-                const label = document.createElement('label');
-                label.className = 'form-check-label';
-                label.htmlFor = `column-${column}`;
-                label.textContent = column;
-
-                div.appendChild(input);
-                div.appendChild(label);
-                container.appendChild(div);
-            });
-        }
-    }
-
-    if (processForm) {
-        processForm.addEventListener('submit', async function(e) {
-            e.preventDefault();
-
-            if (!validateForm()) {
-                return;
-            }
-
-            document.getElementById('progress-section').style.display = 'block';
-            document.getElementById('results-section').style.display = 'none';
-            const progressBar = document.getElementById('progress-bar');
-            progressBar.style.width = '0%';
-            progressBar.classList.add('progress-bar-animated');
-
-            const formData = {
-                file_path: document.getElementById('file_path').value,
-                selected_columns: Array.from(document.querySelectorAll('input[name="columns"]:checked')).map(cb => cb.value),
-                row_limit: document.getElementById('row_limit').value,
-                api_key: document.getElementById('api_key').value,
-                instructions: document.getElementById('instructions').value,
-                gpt_model: document.getElementById('gpt_model').value
-            };
-
-            try {
-                const response = await fetch('/process', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(formData)
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                console.log('Process started successfully');
-            } catch (error) {
-                console.error('Processing error:', error);
-                showError('Error starting process: ' + error.message);
-            }
-        });
-    }
-
-    function validateForm() {
-        const selectedColumns = document.querySelectorAll('input[name="columns"]:checked');
-        if (selectedColumns.length === 0) {
-            alert('Please select at least one column to analyze.');
-            return false;
-        }
-
-        const apiKey = document.getElementById('api_key').value.trim();
-        if (!apiKey) {
-            alert('Please enter your OpenAI API key.');
-            return false;
-        }
-
-        const instructions = document.getElementById('instructions').value.trim();
-        if (!instructions) {
-            alert('Please enter analysis instructions.');
-            return false;
-        }
-
-        return true;
-    }
-
-    // Add handler for the "Start New Processing" button
-    const startNewButton = document.getElementById('start-new');
-    if (startNewButton) {
-        startNewButton.addEventListener('click', function() {
-            document.getElementById('config-section').style.display = 'none';
-            document.getElementById('progress-section').style.display = 'none';
-            document.getElementById('results-section').style.display = 'none';
-            const uploadFormReset = document.getElementById('upload-form');
-            if (uploadFormReset) uploadFormReset.reset();
-            const processFormReset = document.getElementById('processForm');
-            if (processFormReset) processFormReset.reset();
-            errorDiv.style.display = 'none';
-        });
-    }
-
-    // Socket.IO event handlers
-    socket.on('progress', function(data) {
-        console.log('Progress update:', data);
-        const progressBar = document.getElementById('progress-bar');
-        progressBar.style.width = `${data.progress}%`;
-        progressBar.setAttribute('aria-valuenow', data.progress);
-        progressBar.textContent = `${data.progress}%`;
-
-        document.getElementById('progress-status').textContent =
-            `Processing row ${data.current} of ${data.total}`;
-    });
-
-    socket.on('complete', function(data) {
-        console.log('Processing complete:', data);
-        document.getElementById('progress-section').style.display = 'none';
-        document.getElementById('results-section').style.display = 'block';
-        document.getElementById('download-link').href = `/download/${data.file}`;
-    });
-
-    socket.on('error', function(data) {
-        console.error('Processing error:', data);
-        alert('Error during processing: ' + data.error);
-    });
-});
-</script>
-
-{% endblock %}
-
-{% block content %}
-<!-- File Upload Section -->
-<div class="row justify-content-center mt-5">
-    <div class="col-md-8">
-        <div class="card">
-            <div class="card-body">
-                <h4 class="card-title text-center mb-4">Step 1: Upload Your CSV File</h4>
-                <form id="upload-form" enctype="multipart/form-data">
-                    <div class="mb-3">
-                        <label for="file-input" class="form-label">Choose a CSV File</label>
-                        <input type="file" name="file" id="file-input" class="form-control" accept=".csv" required>
-                    </div>
-                    <div class="text-center">
-                        <button type="submit" class="btn btn-primary btn-lg" id="upload-button">
-                            Upload & Configure
-                        </button>
-                    </div>
-                </form>
-                <div id="error-message" class="alert alert-danger mt-3"></div>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">SmartScrape</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+                    aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#instructionsModal">Instructions</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#aboutModal">About</a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    {% if current_user.is_authenticated %}
+                        <li class="nav-item">
+                            <span class="nav-link">
+                                Scrapes: {{ current_user.scrapes_used }}/{{ current_user.scrape_limit }}
+                            </span>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('auth.logout') }}">Logout ({{ current_user.username }})</a>
+                        </li>
+                    {% else %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('auth.login') }}">Login</a>
+                        </li>
+                    {% endif %}
+                </ul>
             </div>
         </div>
-    </div>
-</div>
+    </nav>
 
-<!-- Configuration Section -->
-<div id="config-section" class="row justify-content-center mt-4" style="display: none;">
-    <div class="col-md-8">
-        <div class="card">
-            <div class="card-body">
-                <h4 class="card-title text-center mb-4">Step 2: Configure Processing</h4>
-                <form id="processForm">
-                    <input type="hidden" id="file_path" name="file_path">
-
-                    <!-- OpenAI Configuration -->
-                    <div class="api-config-section mb-4">
-                        <h5>OpenAI Settings</h5>
-                        <div class="mb-3">
-                            <label for="api_key" class="form-label">OpenAI API Key</label>
-                            <input type="password" id="api_key" class="form-control" required
-                                   data-toggle="tooltip"
-                                   data-placement="top"
-                                   title="Get your API key from platform.openai.com">
-                        </div>
-                        <div class="mb-3">
-                            <label for="gpt_model" class="form-label">GPT Model</label>
-                            <select id="gpt_model" class="form-select">
-                                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                                <option value="gpt-4">GPT-4</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <!-- Processing Settings -->
-                    <div class="mb-4">
-                        <h5>Processing Settings</h5>
-                        <div class="mb-3">
-                            <label for="row_limit" class="form-label">Number of Rows to Process</label>
-                            <input type="number" id="row_limit" class="form-control" min="1" placeholder="Leave blank for all rows">
-                        </div>
-                    </div>
-
-                    <!-- Column Selection -->
-                    <div class="mb-4">
-                        <h5>Column Selection</h5>
-                        <div id="column-checkboxes" class="checkbox-container">
-                            <!-- Dynamically added checkboxes -->
-                        </div>
-                    </div>
-
-                    <!-- Analysis Instructions -->
-                    <div class="mb-4">
-                        <h5>Analysis Instructions</h5>
-                        <label for="instructions" class="form-label">Instructions for GPT Analysis</label>
-                        <textarea id="instructions" class="form-control" rows="4" required placeholder="Provide specific instructions for GPT analysis."></textarea>
-                    </div>
-
-                    <!-- Start Processing -->
-                    <div class="text-center">
-                        <button id="start-processing" class="btn btn-success btn-lg" type="submit">Start Processing</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Progress Section -->
-<div id="progress-section" class="row justify-content-center mt-4" style="display: none;">
-    <div class="col-md-8">
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title text-center">Processing Progress</h5>
-                <div class="progress">
-                    <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%">0%</div>
+    <!-- Instructions Modal -->
+    <div class="modal fade" id="instructionsModal" tabindex="-1" aria-labelledby="instructionsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="instructionsModalLabel">How to Use SmartScrape</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div id="progress-status" class="text-center mt-3">Processing row 0 of 0</div>
-            </div>
-        </div>
-    </div>
-</div>
+                <div class="modal-body">
+                    <h6>1. Upload Your CSV File</h6>
+                    <p>Upload a CSV file containing a 'Websites' column with the URLs you want to analyze.</p>
 
-<!-- Results Section -->
-<div id="results-section" class="row justify-content-center mt-4" style="display: none;">
-    <div class="col-md-8">
-        <div class="card">
-            <div class="card-body text-center">
-                <h5 class="card-title">Processing Complete!</h5>
-                <a id="download-link" href="#" class="btn btn-primary">Download Results</a>
-                <button id="start-new" class="btn btn-secondary mt-3">Start New Processing</button>
+                    <h6>2. Configure Analysis</h6>
+                    <ul>
+                        <li>Enter your OpenAI API key</li>
+                        <li>Choose the GPT model</li>
+                        <li>Provide analysis instructions</li>
+                        <li>Optionally limit the number of rows to process</li>
+                        <li>Add additional analysis columns if needed</li>
+                    </ul>
+
+                    <h6>3. Additional Columns</h6>
+                    <p>For each additional column:</p>
+                    <ul>
+                        <li>Provide a column name</li>
+                        <li>Write specific instructions for what GPT should analyze and output</li>
+                        <li>You can add up to 5 additional columns</li>
+                    </ul>
+
+                    <h6>4. Processing</h6>
+                    <p>Click 'Start Processing' and wait for the analysis to complete. The results will automatically download as a CSV file.</p>
+                </div>
             </div>
         </div>
     </div>
+
+    <!-- About Modal -->
+    <div class="modal fade" id="aboutModal" tabindex="-1" aria-labelledby="aboutModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="aboutModalLabel">About SmartScrape</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>SmartScrape is a powerful tool that combines web scraping with GPT analysis to help you gather and analyze website data efficiently.</p>
+                    <p>Features:</p>
+                    <ul>
+                        <li>Automated web scraping</li>
+                        <li>GPT-powered content analysis</li>
+                        <li>Custom analysis columns</li>
+                        <li>Batch processing</li>
+                        <li>CSV export</li>
+                    </ul>
+                    <p class="mt-3">Version: 1.0</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <!-- Step 1: File Upload -->
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h4 class="card-title text-center mb-4">Step 1: Upload Your CSV File</h4>
+                        <form id="uploadForm" enctype="multipart/form-data">
+                            <div class="mb-3">
+                                <label for="file-input" class="form-label">Choose a CSV File</label>
+                                <input type="file" id="file-input" name="file" class="form-control" accept=".csv" required>                            </div>
+                            <div class="text-center">
+                                <button type="submit" class="btn btn-primary btn-lg" id="upload-button">
+                                    Upload & Configure
+                                </button>
+                            </div>
+                        </form>
+                        <div id="resultsMessage" class="alert mt-3"></div>
+                        <div id="error-message" class="alert alert-danger mt-3" role="alert"></div>
+                    </div>
+                </div>
+            </div>
+            
+<!-- Step 2: Configuration Section -->
+<div class="col-md-6" id="config-section" style="display: none;">
+    <div class="card h-100"> 
+        <div class="card-body">
+            <h4 class="card-title text-center mb-4">Step 2: Configure Processing</h4>
+            <form id="processForm">
+                <input type="hidden" id="file_path" name="file_path">
+            
+                <!-- OpenAI Configuration -->
+                <div class="mb-4">
+                    <h5>OpenAI Settings</h5>
+                    <div class="mb-3">
+                        <label for="api_key" class="form-label">OpenAI API Key</label>
+                        <input type="password" class="form-control" id="api_key" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="gpt_model" class="form-label">GPT Model</label>
+                        <select id="gpt_model" class="form-select">
+                            <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                            <option value="gpt-4">GPT-4</option>
+                        </select>
+                    </div>
+                </div>
+            
+                <!-- Analysis Instructions -->
+                <div class="mb-4">
+                    <h5>Analysis Instructions</h5>
+                    <textarea id="instructions" class="form-control" rows="4" required
+                              placeholder="Provide specific instructions for GPT analysis."></textarea>
+                </div>
+            
+                <!-- Additional Output Columns -->
+                <div class="mb-4">
+                    <h5>Additional Analysis Columns</h5>
+                    <p class="text-muted small">Add up to 5 custom columns with specific analysis instructions</p>
+                    
+                    <div class="mb-3">
+                        <label for="num-additional-columns" class="form-label">Number of Additional Columns</label>
+                        <select class="form-select" id="num-additional-columns">
+                            <option value="0">None</option>
+                            <option value="1">1 Column</option>
+                            <option value="2">2 Columns</option>
+                            <option value="3">3 Columns</option>
+                            <option value="4">4 Columns</option>
+                            <option value="5">5 Columns</option>
+                        </select>
+                    </div>
+            
+                    <!-- Container for dynamic additional columns -->
+                    <div id="additional-columns-container"></div>
+                </div>
+                <!-- Row Limit Input -->
+                <div class="mb-3">
+                    <label for="row-limit" class="form-label">Number of Rows to Process</label>
+                    <input type="number" id="row-limit" class="form-control" min="1"
+                           placeholder="Leave blank to process all rows">
+                </div>
+            
+                <!-- Processing Controls -->
+                <div class="text-center">
+                    <button id="process-button" class="btn btn-success btn-lg" disabled>Start Processing</button>
+                    <div class="text-muted mt-2">
+                        <small>Processing time: Approximately 30-60 seconds per 100 rows for scraping and analysis</small>
+                    </div>
+                </div>
+            
+                <!-- Processing Status Section -->
+        <!-- Processing Status Section -->
+        <div id="processing-status" class="mt-4">
+            <!-- Overall Progress -->
+            <div id="overall-progress" class="mt-3">
+                <h6 class="text-center">Overall Progress</h6>
+                <div class="progress mb-3">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated"
+                        role="progressbar" style="width: 0%"
+                        aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                </div>
+                <div class="text-center mt-2">
+                    <small id="overall-progress-text">Processing row 0 of 0</small>
+                </div>
+            </div>
+
+            <!-- Current Operation Status -->
+            <div id="operation-status" class="text-center mt-2">
+                <small id="current-operation">Initializing...</small>
+            </div>
+        </div>
+            </form>
+            
+        </div> <!-- Close card-body -->
+    </div> <!-- Close card -->
 </div>
-{% endblock %}
+</div>
+</div>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('Initializing application...');
+        // The initializeApp function is now in progress.js
+    });
+</script>
+
+</body>
+
+</html>

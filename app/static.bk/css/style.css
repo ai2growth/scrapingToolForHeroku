@@ -1,16 +1,4 @@
 <style>
-/* Progress Bar Styling */
-.progress {
-    height: 20px;
-    background-color: #f5f5f5;
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.progress-bar {
-    transition: width 0.3s ease;
-    min-width: 2%;
-}
 /* Navbar Styling */
 .navbar {
     background-color: #343a40; /* Dark gray for navbar */

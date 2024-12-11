@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartScrape - Enrich and Categorize Your Website List</title>
+    <!-- Bootstrap and jQuery -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        #resultsMessage,
+        #error-message,
+        #config-section,
+        #progress-section {
+            display: none;
+        }
+
+        .progress {
+            height: 25px;
+            margin-bottom: 20px;
+        }
+
+        .progress-bar {
+            line-height: 25px;
+        }
+
+        .stats-container {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 15px;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .additional-column {
+            margin-bottom: 20px;
+        }
+
+        .column-control-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+        }
+
+        .text-muted {
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">SmartScrape</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+                    aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#instructionsModal">Instructions</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#aboutModal">About</a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    {% if current_user.is_authenticated %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('auth.logout') }}">Logout</a>
+                        </li>
+                    {% else %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('login') }}">Login</a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Instructions Modal -->
+    <div class="modal fade" id="instructionsModal" tabindex="-1" aria-labelledby="instructionsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="instructionsModalLabel">How to Use SmartScrape</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <h6>1. Upload Your CSV File</h6>
+                    <p>Upload a CSV file containing a 'Websites' column with the URLs you want to analyze.</p>
+    
+                    <h6>2. Configure Analysis</h6>
+                    <ul>
+                        <li>Enter your OpenAI API key</li>
+                        <li>Choose the GPT model</li>
+                        <li>Provide analysis instructions</li>
+                        <li>Optionally limit the number of rows to process</li>
+                        <li>Add additional analysis columns if needed</li>
+                    </ul>
+    
+                    <h6>3. Additional Columns</h6>
+                    <p>For each additional column:</p>
+                    <ul>
+                        <li>Provide a column name</li>
+                        <li>Write specific instructions for what GPT should analyze and output</li>
+                        <li>You can add up to 5 additional columns</li>
+                    </ul>
+    
+                    <h6>4. Processing</h6>
+                    <p>Click 'Start Processing' and wait for the analysis to complete. The results will automatically download as a CSV file.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- About Modal -->
+    <div class="modal fade" id="aboutModal" tabindex="-1" aria-labelledby="aboutModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="aboutModalLabel">About SmartScrape</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>SmartScrape is a powerful tool that combines web scraping with GPT analysis to help you gather and analyze website data efficiently.</p>
+                    <p>Features:</p>
+                    <ul>
+                        <li>Automated web scraping</li>
+                        <li>GPT-powered content analysis</li>
+                        <li>Custom analysis columns</li>
+                        <li>Batch processing</li>
+                        <li>CSV export</li>
+                    </ul>
+                    <p class="mt-3">Version: 1.0</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container mt-5">
+        <!-- Step 1: File Upload -->
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-body">
+                        <h4 class="card-title text-center mb-4">Step 1: Upload Your CSV File</h4>
+                        <form id="uploadForm" enctype="multipart/form-data">
+                            <div class="mb-3">
+                                <label for="file-input" class="form-label">Choose a CSV File</label>
+                                <input type="file" name="file" id="file-input" class="form-control" accept=".csv" required>
+                            </div>
+                            <div class="text-center">
+                                <button type="submit" class="btn btn-primary btn-lg" id="upload-button">
+                                    Upload & Configure
+                                </button>
+                            </div>
+                        </form>
+                        <div id="resultsMessage" class="alert mt-3"></div>
+                        <div id="error-message" class="alert alert-danger mt-3" role="alert"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: Configuration Section -->
+        <div id="config-section" class="row justify-content-center mt-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-body">
+                        <h4 class="card-title text-center mb-4">Step 2: Configure Processing</h4>
+                        <form id="processForm">
+                            <input type="hidden" id="file_path" name="file_path">
+
+                            <!-- OpenAI Configuration -->
+                            <div class="mb-3">
+                                <label for="api_key" class="form-label">OpenAI API Key</label>
+                                <input type="password" class="form-control" id="api_key" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="gpt_model" class="form-label">GPT Model</label>
+                                <select id="gpt_model" class="form-select">
+                                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                    <option value="gpt-4">GPT-4</option>
+                                </select>
+                            </div>
+
+                            <!-- Analysis Instructions -->
+                            <div class="mb-4">
+                                <h5>Analysis Instructions</h5>
+                                <textarea id="instructions" class="form-control" rows="4" required
+                                    placeholder="Provide specific instructions for GPT analysis."></textarea>
+                            </div>
+
+                            <!-- Row Limit Input -->
+                            <div class="mb-3">
+                                <label for="row-limit" class="form-label">Number of Rows to Process</label>
+                                <input type="number" id="row-limit" class="form-control" min="1" 
+                                    placeholder="Leave blank to process all rows">
+                            </div>
+
+                            <!-- Additional Output Columns -->
+                            <div class="mb-4">
+                                <h5>Additional Output Columns (Optional)</h5>
+                                <p class="text-muted small">Add up to 5 custom columns with specific analysis instructions</p>
+                                <!-- Move the Number of Columns Selector before the container -->
+                                <div class="mb-3">
+                                    <label for="num-additional-columns" class="form-label">Number of Additional Columns</label>
+                                    <select class="form-select" id="num-additional-columns" onchange="updateAdditionalColumns()">
+                                        <option value="0">None</option>
+                                        <option value="1">1 Column</option>
+                                        <option value="2">2 Columns</option>
+                                        <option value="3">3 Columns</option>
+                                        <option value="4">4 Columns</option>
+                                        <option value="5">5 Columns</option>
+                                    </select>
+                                </div>
+
+                                <!-- Empty container for dynamic columns -->
+                                <div id="additional-columns-container"></div>
+                            </div>
+
+                            <!-- Column Selection -->
+                            <div class="mb-3">
+                                <h5>Select Columns to Process</h5>
+                                <div id="column-checkboxes"></div>
+                            </div>
+
+                            <div class="text-center">
+                                <button id="process-button" class="btn btn-success btn-lg">Start Processing</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: Progress Section -->
+        <div id="progress-section" class="row justify-content-center mt-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-body">
+                        <h4 class="card-title text-center mb-4">Processing Progress</h4>
+                        <div class="progress mb-3">
+                            <div id="progress-bar" class="progress-bar" role="progressbar" style="width: 0%;" 
+                                 aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span>Processed: <span id="processed-count">0</span>/<span id="total-count">0</span></span>
+                            <span>Successful: <span id="success-count">0</span></span>
+                            <span>Errors: <span id="error-count">0</span></span>
+                        </div>
+                        <div id="estimated-time" class="mt-3 text-muted text-center"></div>
+                        <div class="text-center mt-3">
+                            <button id="abort-button" class="btn btn-danger">Abort Processing</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Include the main JavaScript file -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Initialize Socket.IO connection
+            const socket = io();
+
+            // DOM elements
+            const uploadForm = document.getElementById('uploadForm');
+            const processForm = document.getElementById('processForm');
+            const configSection = document.getElementById('config-section');
+            const progressSection = document.getElementById('progress-section');
+            const uploadButton = document.getElementById('upload-button');
+            const processButton = document.getElementById('process-button');
+            const abortButton = document.getElementById('abort-button');
+
+            // File upload handler
+            uploadForm.addEventListener('submit', async function (e) {
+                e.preventDefault();
+                const formData = new FormData(this);
+
+                try {
+                    uploadButton.disabled = true;
+                    uploadButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading...';
+
+                    const response = await fetch('/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Upload failed');
+                    }
+
+                    const data = await response.json();
+                    if (data.file_path) {
+                        document.getElementById('file_path').value = data.file_path;
+                        showNotification('File uploaded successfully! Please configure your analysis settings.', 'success');
+                        configSection.style.display = 'block';
+                    } else {
+                        throw new Error('Invalid server response');
+                    }
+                } catch (error) {
+                    showError(`Error: ${error.message}`);
+                } finally {
+                    uploadButton.disabled = false;
+                    uploadButton.innerHTML = 'Upload & Configure';
+                }
+            });
+
+            // Form validation function
+            function validateForm() {
+                const numColumns = parseInt(document.getElementById('num-additional-columns').value);
+                
+                // Validate required fields
+                if (!document.getElementById('api_key').value.trim()) {
+                    showError('Please enter your OpenAI API key');
+                    return false;
+                }
+                
+                if (!document.getElementById('instructions').value.trim()) {
+                    showError('Please provide analysis instructions');
+                    return false;
+                }
+
+                // Validate additional columns if any are selected
+                for (let i = 1; i <= numColumns; i++) {
+                    const nameInput = document.getElementById(`column-name-${i}`);
+                    const instructionsInput = document.getElementById(`column-instructions-${i}`);
+                    
+                    if (!nameInput.value.trim()) {
+                        showError(`Please provide a name for additional column ${i}`);
+                        return false;
+                    }
+                    if (!instructionsInput.value.trim()) {
+                        showError(`Please provide instructions for additional column ${i}`);
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+
+            // Processing form submit handler
+            // Processing form submit handler
+            processForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+
+                // Collect additional columns data
+                const numColumns = parseInt(document.getElementById('num-additional-columns').value);
+                const additionalColumns = [];
+                
+                // Only collect data for the number of columns selected
+                for (let i = 1; i <= numColumns; i++) {
+                    const nameInput = document.getElementById(`column-name-${i}`);
+                    const instructionsInput = document.getElementById(`column-instructions-${i}`);
+                    
+                    if (nameInput && instructionsInput) {
+                        const name = nameInput.value.trim();
+                        const instructions = instructionsInput.value.trim();
+                        
+                        if (name && instructions) {
+                            additionalColumns.push({
+                                name: name,
+                                instructions: instructions
+                            });
+                        }
+                    }
+                }
+
+                try {
+                    const formData = {
+                        file_path: document.getElementById('file_path').value,
+                        api_key: document.getElementById('api_key').value,
+                        instructions: document.getElementById('instructions').value,
+                        gpt_model: document.getElementById('gpt_model').value,
+                        row_limit: document.getElementById('row-limit').value,
+                        additional_columns: additionalColumns // Adding the additional columns data
+                    };
+
+                    processButton.disabled = true;
+                    processButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
+                    progressSection.style.display = 'block';
+                    configSection.style.display = 'none';
+
+                    const response = await fetch('/process', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(formData)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Processing failed to start');
+                    }
+
+                    showNotification('Processing started. Please wait...', 'info');
+                } catch (error) {
+                    showError(`Error: ${error.message}`);
+                    progressSection.style.display = 'none';
+                    configSection.style.display = 'block';
+                }
+            });
+
+            
+
+            // Update Additional Columns dynamically
+            function updateAdditionalColumns() {
+                const container = document.getElementById('additional-columns-container');
+                const numColumns = parseInt(document.getElementById('num-additional-columns').value);
+                
+                container.innerHTML = ''; // Clear existing columns
+
+                for (let i = 1; i <= numColumns; i++) {
+                    const columnHtml = `
+                        <div class="additional-column mb-3">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h6>Additional Column ${i}</h6>
+                                    <div class="mb-2">
+                                        <label class="form-label">Column Name</label>
+                                        <input type="text" class="form-control column-name" 
+                                            id="column-name-${i}" placeholder="e.g., Company Size" required>
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label">GPT Instructions for this Column</label>
+                                        <textarea class="form-control column-instructions" 
+                                            id="column-instructions-${i}" rows="3" required
+                                            placeholder="Provide specific instructions for GPT to analyze and output."></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    container.insertAdjacentHTML('beforeend', columnHtml);
+                }
+            }
+
+            // Notification function
+            function showNotification(message, type = 'success', duration = 5000) {
+                const resultsMessage = document.getElementById('resultsMessage');
+                resultsMessage.className = `alert alert-${type} mt-3`;
+                resultsMessage.innerHTML = message;
+                resultsMessage.style.display = 'block';
+                
+                if (type !== 'info') {  // Don't auto-hide info messages
+                    setTimeout(() => {
+                        resultsMessage.style.display = 'none';
+                    }, duration);
+                }
+            }
+
+            // Error message function
+            function showError(message) {
+                const errorMessage = document.getElementById('error-message');
+                errorMessage.textContent = message;
+                errorMessage.style.display = 'block';
+                setTimeout(() => errorMessage.style.display = 'none', 5000);
+            }
+        });
+    </script>
+</body>
+
+</html>

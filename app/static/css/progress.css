@@ -1,0 +1,19 @@
+/* progress.css */
+#scraping-progress {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+#scraping-progress .progress {
+    height: 25px;
+}
+
+#scraping-progress .progress-bar {
+    line-height: 25px;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+#progress-text {
+    color: #666;
+}
