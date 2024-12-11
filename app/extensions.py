@@ -6,6 +6,7 @@ from flask_socketio import SocketIO
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
 from flask_mail import Mail
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # Initialize Flask extensions
 db = SQLAlchemy()
@@ -35,13 +36,6 @@ socketio = SocketIO(
 def default_error_handler(e):
     print(f'SocketIO Error: {str(e)}')
     socketio.emit('error', {'error': str(e)})
-
-socketio = SocketIO(
-    cors_allowed_origins="*",
-    async_mode='threading',
-    logger=True,
-    engineio_logger=True
-)
 
 # Add connection handling
 @socketio.on('connect')
