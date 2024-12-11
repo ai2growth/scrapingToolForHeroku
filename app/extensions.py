@@ -1,7 +1,6 @@
 # app/extensions.py
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
-from flask_bcrypt import Bcrypt
 from flask_socketio import SocketIO
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
@@ -11,10 +10,21 @@ from werkzeug.security import generate_password_hash, check_password_hash
 # Initialize Flask extensions
 db = SQLAlchemy()
 login_manager = LoginManager()
-bcrypt = Bcrypt()
 migrate = Migrate()
 csrf = CSRFProtect() 
 mail = Mail()
+
+# Add this PasswordHasher class to replace bcrypt
+class PasswordHasher:
+    @staticmethod
+    def generate_password_hash(password):
+        return generate_password_hash(password)
+    
+    @staticmethod
+    def check_password_hash(pw_hash, password):
+        return check_password_hash(pw_hash, password)
+
+bcrypt = PasswordHasher()
 
 # Initialize SocketIO with specific configuration
 socketio = SocketIO(
