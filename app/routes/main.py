@@ -26,13 +26,8 @@ from flask import (
     Blueprint,
     make_response
 )
-from flask_login import (
-    LoginManager,
-    login_required,
-    current_user
-    UserMixin 
-)
 
+from flask_login import LoginManager, login_required, current_user, UserMixin
 from flask_socketio import SocketIO
 from flask_sqlalchemy import SQLAlchemy
 
