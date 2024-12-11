@@ -406,11 +406,16 @@ def dashboard():
 def upload():
     """Handle file upload and return column information."""
     try:
+        logger.info(f"Upload request received from user: {current_user.username if current_user else 'No user'}")
+        logger.info(f"User authenticated: {current_user.is_authenticated if current_user else False}")
+
         if 'file' not in request.files:
+            logger.error("No file part in request")
             return jsonify({"error": "No file part"}), 400
 
         file = request.files['file']
         if not file or file.filename == '':
+            logger.error("No selected file in request")
             return jsonify({"error": "No selected file"}), 400
 
         if file and allowed_file(file.filename):
@@ -419,29 +424,48 @@ def upload():
             filename = f"{unique_suffix}_{filename}"
             file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
 
-            file.save(file_path)
-            df = pd.read_csv(file_path, low_memory=False)
+            try:
+                file.save(file_path)
+                logger.info(f"File saved successfully at: {file_path}")
+            except Exception as e:
+                logger.error(f"Failed to save file: {str(e)}")
+                return jsonify({"error": "Failed to save the file. Please try again."}), 500
 
-            # Clean DataFrame
-            df = df.loc[:, ~df.columns.str.contains('^Unnamed:')]
-            df = df.dropna(axis=1, how='all')
+            try:
+                df = pd.read_csv(file_path, low_memory=False)
 
-            available_columns = list(df.columns)
-            if 'Websites' not in available_columns:
-                return jsonify({"error": "CSV file must contain a 'Websites' column"}), 400
+                # Clean DataFrame
+                df = df.loc[:, ~df.columns.str.contains('^Unnamed:')]
+                df = df.dropna(axis=1, how='all')
 
-            return jsonify({
-                "filename": filename,
-                "file_path": file_path,
-                "columns": available_columns,
-                "row_count": len(df)
-            }), 200
+                available_columns = list(df.columns)
+                if 'Websites' not in available_columns:
+                    logger.error("CSV file must contain a 'Websites' column")
+                    return jsonify({"error": "CSV file must contain a 'Websites' column"}), 400
 
+                logger.info(f"File upload successful. Columns: {available_columns}, Rows: {len(df)}")
+
+                return jsonify({
+                    "filename": filename,
+                    "file_path": file_path,
+                    "columns": available_columns,
+                    "row_count": len(df)
+                }), 200
+
+            except pd.errors.EmptyDataError:
+                logger.error("Uploaded file is empty or invalid")
+                return jsonify({"error": "Uploaded file is empty or invalid."}), 400
+
+            except Exception as e:
+                logger.error(f"Error processing file: {str(e)}")
+                return jsonify({"error": "Error processing the file. Please check the file format and try again."}), 500
+
+        logger.error("Invalid file type uploaded")
         return jsonify({"error": "Invalid file type. Please upload a CSV file."}), 400
 
     except Exception as e:
-        logger.error(f"Upload error: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Unexpected error during upload: {str(e)}")
+        return jsonify({"error": "An unexpected error occurred. Please try again."}), 500
 
 def allowed_file(filename):
     """Check if the file has an allowed extension."""

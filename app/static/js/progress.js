@@ -265,32 +265,39 @@ function initializeApp() {
         showError(data.message);
         stopProgressMonitoring();
     });
-
+    
     uploadForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         console.log('Upload form submitted');
-
+    
         if (!fileInput.files[0]) {
             showError('Please select a file');
             return;
         }
-
+    
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
-
+    
         try {
             uploadButton.disabled = true;
             uploadButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading...';
-
+    
             const response = await fetch('/upload', {
                 method: 'POST',
                 body: formData
             });
-
-            if (!response.ok) {
-                throw new Error(await response.text());
+    
+            if (response.status === 302) {
+                console.warn('Redirect detected. Navigating to login page...');
+                window.location.href = '/auth/login';
+                return;
             }
-
+    
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Upload failed');
+            }
+    
             const data = await response.json();
             if (data.file_path) {
                 document.getElementById('file_path').value = data.file_path;
@@ -300,13 +307,13 @@ function initializeApp() {
             }
         } catch (error) {
             console.error('Upload error:', error);
-            showError(error.message);
+            showError(error.message || 'An unexpected error occurred during upload');
         } finally {
             uploadButton.disabled = false;
             uploadButton.innerHTML = 'Upload & Configure';
         }
     });
-
+    
     processForm.addEventListener('submit', async (e) => {
         e.preventDefault();
 

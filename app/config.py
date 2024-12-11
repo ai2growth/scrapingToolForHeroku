@@ -1,11 +1,18 @@
 # config.py
 import os
 from pathlib import Path
+from datetime import timedelta  # Add this import at the top
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'AqBFzxtJbkYMZm6GfsyF!#'
+    
+    # Session configuration (add these lines)
+    SESSION_COOKIE_SECURE = True  # For HTTPS
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    PERMANENT_SESSION_LIFETIME = timedelta(minutes=60)
     
     # Database configuration
     if os.environ.get('DATABASE_URL'):
