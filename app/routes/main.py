@@ -30,7 +30,9 @@ from flask_login import (
     LoginManager,
     login_required,
     current_user
+    UserMixin  # Add this
 )
+
 from flask_socketio import SocketIO
 from flask_sqlalchemy import SQLAlchemy
 
