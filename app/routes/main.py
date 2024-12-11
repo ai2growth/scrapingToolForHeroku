@@ -400,11 +400,9 @@ def index():
 @login_required
 def dashboard():
     return render_template('user_dashboard.html')
-
 @bp.route('/upload', methods=['POST'])
 @login_required
 def upload():
-    """Handle file upload and return column information."""
     try:
         logger.info(f"Upload request received from user: {current_user.username if current_user else 'No user'}")
         logger.info(f"User authenticated: {current_user.is_authenticated if current_user else False}")
@@ -438,12 +436,37 @@ def upload():
                 df = df.loc[:, ~df.columns.str.contains('^Unnamed:')]
                 df = df.dropna(axis=1, how='all')
 
-                available_columns = list(df.columns)
-                if 'Websites' not in available_columns:
-                    logger.error("CSV file must contain a 'Websites' column")
-                    return jsonify({"error": "CSV file must contain a 'Websites' column"}), 400
+                # Define acceptable column names
+                acceptable_names = [
+                    'websites', 'Websites',
+                    'sites', 'Sites',
+                    'domains', 'Domains',
+                    'company_website',
+                    'companywebsite'
+                ]
 
+                # Check if any acceptable column name exists
+                found_column = None
+                for name in acceptable_names:
+                    if name in df.columns:
+                        found_column = name
+                        break
+
+                if not found_column:
+                    logger.error("No valid website column found")
+                    return jsonify({
+                        "error": "CSV file must contain a column named one of: 'Websites', 'Sites', 'Domains', 'company_website', or 'companywebsite'"
+                    }), 400
+
+                # Rename the found column to 'Websites' for consistency
+                if found_column != 'Websites':
+                    df = df.rename(columns={found_column: 'Websites'})
+
+                available_columns = list(df.columns)
                 logger.info(f"File upload successful. Columns: {available_columns}, Rows: {len(df)}")
+
+                # Save the modified DataFrame back to CSV
+                df.to_csv(file_path, index=False)
 
                 return jsonify({
                     "filename": filename,
@@ -466,7 +489,6 @@ def upload():
     except Exception as e:
         logger.error(f"Unexpected error during upload: {str(e)}")
         return jsonify({"error": "An unexpected error occurred. Please try again."}), 500
-
 def allowed_file(filename):
     """Check if the file has an allowed extension."""
     ALLOWED_EXTENSIONS = {'csv'}

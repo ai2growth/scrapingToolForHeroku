@@ -123,6 +123,7 @@
                 <div class="card h-100">
                     <div class="card-body">
                         <h4 class="card-title text-center mb-4">Step 1: Upload Your CSV File</h4>
+                        {% if current_user.is_authenticated %}
                         <form id="uploadForm" enctype="multipart/form-data">
                             <div class="mb-3">
                                 <label for="file-input" class="form-label">Choose a CSV File</label>
@@ -133,6 +134,11 @@
                                 </button>
                             </div>
                         </form>
+                        {% else %}
+                            <div class="alert alert-warning">
+                                Please <a href="{{ url_for('auth.login') }}">login</a> to upload files.
+                            </div>
+                        {% endif %}
                         <div id="resultsMessage" class="alert mt-3"></div>
                         <div id="error-message" class="alert alert-danger mt-3" role="alert"></div>
                     </div>
