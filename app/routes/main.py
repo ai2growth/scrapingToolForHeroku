@@ -54,6 +54,7 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     logger.info(f'Client disconnected: {request.sid}')
+
 @socketio.on('start_processing')
 def handle_start_processing(data):
     logger.info(f'Processing started for client: {request.sid}')
@@ -65,18 +66,41 @@ def handle_start_processing(data):
             'status': 'starting'
         })
         
-        # Call the process route with the data
-        with current_app.test_request_context():
-            # Create a request context with the data
-            request.json = data
-            return process()
-        
+        # Create a request context and preserve the current user
+        with current_app.test_request_context('/process', method='POST'):
+            # Set up the request data
+            request._get_current_object().json = data
+            
+            # Import the login manager and set the user
+            from flask_login import login_manager
+            login_manager.reload_user()
+            
+            # Call the process function
+            response = process()
+            
+            if isinstance(response, tuple):
+                response_data, status_code = response
+                if status_code != 200:
+                    raise Exception(response_data.get('error', 'Processing failed'))
+            
+            # Get the CSV data from the response
+            if hasattr(response, 'response'):
+                csv_data = response.response[0]
+                emit('processing_complete', {
+                    'status': 'complete',
+                    'message': 'Processing completed successfully',
+                    'csv_data': csv_data.decode('utf-8') if isinstance(csv_data, bytes) else csv_data
+                })
+            else:
+                raise Exception('Invalid response format')
+                
     except Exception as e:
         logger.error(f'Processing error: {str(e)}')
         emit('processing_error', {
-            'error': str(e)
-        })
-        
+            'error': str(e),
+            'message': 'An error occurred during processing'
+        }) 
+
 @socketio.on_error_default
 def default_error_handler(e):
     logger.error(f'Socket.IO error: {str(e)}')
