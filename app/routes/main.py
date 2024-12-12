@@ -55,6 +55,7 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     logger.info(f'Client disconnected: {request.sid}')
+
 @socketio.on('start_processing', namespace='/')
 def handle_start_processing(data):
     logger.info(f'Processing started for client: {request.sid}')
@@ -69,7 +70,12 @@ def handle_start_processing(data):
         openai.api_key = data['api_key']
         
         # Read and process the CSV
-        df = pd.read_csv(data['file_path'])
+        original_df = pd.read_csv(data['file_path'])
+        
+        # Remove completely empty columns
+        df = original_df.dropna(axis=1, how='all')
+        
+        # Apply row limit if specified
         if data.get('row_limit'):
             df = df.head(int(data['row_limit']))
             
@@ -100,13 +106,19 @@ def handle_start_processing(data):
         # Process each row
         for index, row in df.iterrows():
             try:
-                result = handle_single_row_with_additional_columns(
+                # Get the analysis result
+                analysis_result = handle_single_row_with_additional_columns(
                     row=row,
                     instructions=data['instructions'],
                     additional_columns=data.get('additional_columns', []),
                     gpt_model=data.get('gpt_model', 'gpt-3.5-turbo')
                 )
-                results.append(result)
+                
+                # Combine original row data with analysis results
+                combined_result = {col: row[col] for col in df.columns}
+                combined_result.update(analysis_result)
+                
+                results.append(combined_result)
                 
                 # Emit progress
                 emit('processing_progress', {
@@ -117,18 +129,46 @@ def handle_start_processing(data):
                 
             except Exception as row_error:
                 logger.error(f'Error processing row {index}: {str(row_error)}')
-                results.append({
-                    'Websites': row.get('Websites', ''),
-                    'Error': str(row_error)
-                })
+                # Include original row data even if analysis fails
+                error_result = {col: row[col] for col in df.columns}
+                error_result['Error'] = str(row_error)
+                results.append(error_result)
 
         # Create final DataFrame
         results_df = pd.DataFrame(results)
+        
+        # Ensure consistent column order
+        # Start with original columns
+        column_order = [col for col in df.columns if col in results_df.columns]
+        
+        # Add analysis columns
+        analysis_columns = ['Scraped_Content', 'Analysis']
+        column_order.extend([col for col in analysis_columns if col in results_df.columns])
+        
+        # Add additional analysis columns
+        if data.get('additional_columns'):
+            for col in data['additional_columns']:
+                if col.get('name') and col['name'] in results_df.columns:
+                    column_order.append(col['name'])
+        
+        # Add error column if it exists
+        if 'Error' in results_df.columns:
+            column_order.append('Error')
+            
+        # Reorder columns
+        results_df = results_df[column_order]
+        
+        # Clean up the DataFrame
+        # Replace NaN with empty string for string columns
+        string_columns = results_df.select_dtypes(include=['object']).columns
+        results_df[string_columns] = results_df[string_columns].fillna('')
         
         # Convert to CSV string
         output = io.StringIO()
         results_df.to_csv(output, index=False)
         csv_data = output.getvalue()
+        
+        logger.info(f"Processing complete. Final columns: {results_df.columns.tolist()}")
         
         # Emit completion with CSV data
         emit('processing_complete', {
