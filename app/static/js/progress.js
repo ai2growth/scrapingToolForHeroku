@@ -352,6 +352,56 @@ function initializeApp() {
     });
 
 
+    socket.on('processing_complete', function(data) {
+        console.log('Processing complete event received');
+        try {
+            if (data && data.csv_data) {
+                console.log('CSV data received, initiating download...');
+                
+                // Create blob from CSV data
+                const blob = new Blob([data.csv_data], { 
+                    type: 'text/csv;charset=utf-8;' 
+                });
+                
+                // Create download link
+                const link = document.createElement('a');
+                const url = window.URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                link.setAttribute('download', `analysis_results_${new Date().toISOString().slice(0,10)}.csv`);
+                link.style.visibility = 'hidden';
+                
+                // Add to document, click, and remove
+                document.body.appendChild(link);
+                console.log('Triggering download...');
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+                
+                // Reset UI
+                if (processButton) {
+                    processButton.disabled = false;
+                    processButton.innerHTML = 'Start Processing';
+                }
+                
+                showNotification('Processing complete! Your file is downloading.', 'success');
+                console.log('Download process completed');
+            } else {
+                console.error('No CSV data in response:', data);
+                showError('Processing completed but no data received');
+            }
+        } catch (error) {
+            console.error('Error handling download:', error);
+            showError('Error downloading file: ' + error.message);
+        } finally {
+            // Ensure UI is reset even if there's an error
+            if (processButton) {
+                processButton.disabled = false;
+                processButton.innerHTML = 'Start Processing';
+            }
+            stopProgressMonitoring();
+        }
+    });
+
     processForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         console.log('Process form submitted');
