@@ -1,5 +1,5 @@
 #/__init__.py
-ffrom flask import Flask
+from flask import Flask
 from .config import Config
 from app.extensions import db, login_manager, mail, socketio  # Import socketio from extensions
 import logging
@@ -23,7 +23,7 @@ def create_app():
         logger=True,
         engineio_logger=True
     )
-    
+
     # Configure login manager
     login_manager.login_view = 'auth.login'
     login_manager.login_message = 'Please log in to access this page.'
