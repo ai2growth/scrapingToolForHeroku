@@ -35,13 +35,54 @@ from app.extensions import db, mail, socketio
 from app.forms import ForgotPasswordForm
 from app.models import User
 
+from flask_socketio import emit, send
+from flask import request
+
 # Disable retries for requests and urllib3
 import urllib3.util.retry
 from requests.adapters import HTTPAdapter
 
 # Define Blueprint
+
 bp = Blueprint('main', __name__)
 
+@socketio.on('connect')
+def handle_connect():
+    logger.info(f'Client connected: {request.sid}')
+    emit('connection_confirmed', {'status': 'connected'})  # Use emit instead of socketio.emit
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    logger.info(f'Client disconnected: {request.sid}')
+@socketio.on('start_processing')
+def handle_start_processing(data):
+    logger.info(f'Processing started for client: {request.sid}')
+    try:
+        # Emit initial progress
+        emit('processing_progress', {
+            'current': 0,
+            'total': 100,
+            'status': 'starting'
+        })
+        
+        # Call the process route with the data
+        with current_app.test_request_context():
+            # Create a request context with the data
+            request.json = data
+            return process()
+        
+    except Exception as e:
+        logger.error(f'Processing error: {str(e)}')
+        emit('processing_error', {
+            'error': str(e)
+        })
+        
+@socketio.on_error_default
+def default_error_handler(e):
+    logger.error(f'Socket.IO error: {str(e)}')
+    emit('error', {'error': str(e)})
+
+# Then your error handlers
 @bp.errorhandler(404)
 def not_found_error(error):
     return render_template('errors/404.html'), 404
@@ -392,22 +433,30 @@ def clean_results(results_list):
 # =========================
 # Routes
 # =========================
+
 @bp.route('/process', methods=['POST'])
 @login_required
 def process():
-    """Handle processing with optimized multithreading and memory management."""
+    """Handle processing with real-time updates via Socket.IO."""
     try:
         # Log memory usage at the start
         log_memory_usage("before processing")
+
+        # Get SocketIO instance and incoming request data
+        socketio_instance = get_socketio()
+        data = request.json
+
+        # Emit start event
+        socketio_instance.emit('processing_progress', {
+            'current': 0,
+            'total': 100,
+            'status': 'starting'
+        })
 
         # Memory check and optimization
         if not check_memory_threshold(threshold_mb=500):
             optimize_memory()
             log_memory_usage("after memory optimization")
-
-        # Get SocketIO instance and incoming request data
-        socketio_instance = get_socketio()
-        data = request.json
 
         # Initialize ScrapeOps client and OpenAI API key
         scrapeops_client = get_scrapeops_client()
@@ -440,6 +489,15 @@ def process():
         for i in range(0, total_rows, chunk_size):
             chunk = df[i:i + chunk_size]
 
+            # Emit progress before processing chunk
+            current_progress = int((i / total_rows) * 100)
+            socketio_instance.emit('processing_progress', {
+                'current': i,
+                'total': total_rows,
+                'progress': current_progress,
+                'status': 'processing'
+            })
+
             # Process chunk with ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=scraping_params['max_workers']) as executor:
                 futures = {
@@ -460,14 +518,15 @@ def process():
                         results.append(result)
                         processed += 1
 
-                        # Update progress
-                        progress = int((processed / total_rows) * 100)
-                        socketio_instance.emit('processing_progress', {
-                            'current': processed,
-                            'total': total_rows,
-                            'progress': progress,
-                            'status': 'processing'
-                        }, namespace='/')
+                        # Update progress more frequently
+                        if processed % 5 == 0:  # Update every 5 rows
+                            progress = int((processed / total_rows) * 100)
+                            socketio_instance.emit('processing_progress', {
+                                'current': processed,
+                                'total': total_rows,
+                                'progress': progress,
+                                'status': 'processing'
+                            })
 
                     except Exception as e:
                         logger.error(f"Error processing row: {str(e)}")
@@ -476,13 +535,9 @@ def process():
                             'Error': str(e)
                         })
 
-            # Log memory after processing each chunk
-            log_memory_usage(f"after processing chunk {i // chunk_size + 1}")
-
-            # Optimize memory after every 5 chunks
+            # Optimize memory after each chunk
             if i % (chunk_size * 5) == 0:
                 optimize_memory()
-                log_memory_usage("after memory optimization during chunk processing")
 
         # Create DataFrame from results
         results_df = pd.DataFrame(results)
@@ -511,9 +566,17 @@ def process():
         if 'Error' in results_df.columns:
             column_order.append('Error')
 
+        # Emit progress update before merging
+        socketio_instance.emit('processing_progress', {
+            'current': total_rows,
+            'total': total_rows,
+            'progress': 90,
+            'status': 'finalizing'
+        })
+
         # Merge original and results DataFrames
         merged_df = pd.merge(
-            df[['Websites'] + original_cols],  # Include all original columns
+            df[['Websites'] + original_cols],
             results_df,
             on='Websites',
             how='left'
@@ -523,37 +586,38 @@ def process():
         final_cols = [col for col in column_order if col in merged_df.columns]
         final_df = merged_df[final_cols]
 
-        # Clean up remaining unnamed columns and replace NaN with empty string in string columns
+        # Clean up remaining unnamed columns and replace NaN with empty string
         final_df = final_df.loc[:, ~final_df.columns.str.contains('^Unnamed:')]
         string_columns = final_df.select_dtypes(include=['object']).columns
         final_df[string_columns] = final_df[string_columns].fillna('')
 
-        # Log memory after creating results DataFrame
-        log_memory_usage("after creating results DataFrame")
-
-        # Final memory optimization
-        optimize_memory()
-        log_memory_usage("after final memory optimization")
-
-        # Update scrape count using existing function
+        # Update scrape count
         try:
             result = update_user_scrape_count(current_user, total_rows)
-
-            # Emit updated scrape count via Socket.IO
+            
+            # Emit updated scrape count
             socketio_instance.emit('scrape_count_updated', {
                 'scrapes_used': result['scrapes_used'],
                 'scrape_limit': result['scrape_limit']
-            }, namespace='/')
-
-            logger.info("Scrape count updated and emitted successfully")
+            })
+            
+            logger.info("Scrape count updated successfully")
         except Exception as e:
             logger.error(f"Failed to update scrape count: {str(e)}")
 
-        # Create response with CSV content
+        # Create CSV response
         output = io.StringIO()
         final_df.to_csv(output, index=False)
         output.seek(0)
 
+        # Emit completion status
+        socketio_instance.emit('processing_complete', {
+            'status': 'complete',
+            'message': 'Processing completed successfully',
+            'rows_processed': total_rows
+        })
+
+        # Prepare and return response
         response = make_response(output.getvalue())
         response.headers.update({
             'Content-Type': 'text/csv',
@@ -564,17 +628,50 @@ def process():
         return response
 
     except Exception as e:
-        # Log memory usage on error
-        log_memory_usage("on error")
+        # Log error and memory usage
         logger.error(f"Processing error: {str(e)}")
+        log_memory_usage("on error")
 
-        # Attempt memory optimization on error
+        # Emit error to client
+        socketio_instance.emit('processing_error', {
+            'error': str(e),
+            'message': 'An error occurred during processing'
+        })
+
+        # Attempt memory optimization
         try:
             optimize_memory()
         except:
             pass
+        return jsonify({
+            'error': str(e),
+            'message': 'An error occurred during processing. Please try again.',
+            'details': {
+                'type': type(e).__name__,
+                'location': 'process route',
+                'timestamp': datetime.now().isoformat()
+            }
+        }), 500
 
-        return jsonify({'error': str(e)}), 500
+    finally:
+        # Final cleanup and progress update
+        try:
+            # Final memory optimization
+            optimize_memory()
+            log_memory_usage("after final cleanup")
+
+            # Final status update
+            socketio_instance.emit('processing_status', {
+                'status': 'completed',
+                'timestamp': datetime.now().isoformat()
+            })
+
+            logger.info("Process route completed execution")
+
+        except Exception as cleanup_error:
+            logger.error(f"Error in final cleanup: {str(cleanup_error)}")
+
+
 
 
 @bp.route('/')

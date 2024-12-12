@@ -169,8 +169,7 @@ function initializeApp() {
         console.error('Socket.IO initialization error:', error);
     }
 
-
-    function fetchScrapeCount() {
+   function fetchScrapeCount() {
         if (!socket || !socket.connected) {
             console.warn('Socket not connected, retrying in 2 seconds...');
             setTimeout(fetchScrapeCount, 2000);
@@ -306,9 +305,33 @@ function initializeApp() {
         stopProgressMonitoring();
     });
 
+    socket.on('processing_complete', function(data) {
+        console.log('Processing complete event received:', data);
+        if (data.csv_data) {
+            // Create a Blob from the CSV data
+            const blob = new Blob([data.csv_data], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            
+            // Create a link and trigger download
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `analysis_results_${new Date().toISOString().slice(0, 10)}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            // Reset UI
+            processButton.disabled = false;
+            processButton.innerHTML = 'Start Processing';
+            showNotification('Processing complete! Your file has been downloaded.', 'success');
+        }
+    });
+
 // In your existing processForm event listener, modify this part:
 processForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    console.log('Process form submitted');
 
     if (!verifySocketConnection()) {
         showError('Not connected to server. Please refresh the page.');
@@ -323,12 +346,11 @@ processForm.addEventListener('submit', async (e) => {
         return;
     }
 
-    processButton.disabled = true;
-    processButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
-
-    startProgressMonitoring();
-
     try {
+        processButton.disabled = true;
+        processButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
+        startProgressMonitoring();
+
         const payload = {
             file_path: document.getElementById('file_path').value,
             api_key: apiKey,
@@ -338,56 +360,19 @@ processForm.addEventListener('submit', async (e) => {
             additional_columns: []
         };
 
-        // Gather additional columns data
-        document.querySelectorAll('.additional-column').forEach(column => {
-            const name = column.querySelector('.column-name').value;
-            const instructions = column.querySelector('.column-instructions').value;
-            if (name && instructions) {
-                payload.additional_columns.push({ name, instructions });
-            }
-        });
+        console.log('Sending payload via Socket.IO:', payload);
 
-        const response = await fetch('/process', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-            credentials: 'include'
-        });
-
-        if (!response.ok) {
-            throw new Error(await response.text());
-        }
-
-        // Handle successful response
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-            const data = await response.json();
-            if (data.error) {
-                throw new Error(data.error);
-            }
-            showNotification(data.message || 'Processing started successfully', 'success');
-        } else {
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `analysis_results_${new Date().toISOString().slice(0, 10)}.csv`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-        }
+        // Only emit the Socket.IO event
+        socket.emit('start_processing', payload);
 
     } catch (error) {
         console.error('Processing error:', error);
-        showError(error.message);
-    } finally {
+        showError(error.message || 'Processing failed');
         processButton.disabled = false;
         processButton.innerHTML = 'Start Processing';
         stopProgressMonitoring();
     }
 });
- 
   
 // Add this right after the processForm handler
 uploadForm.addEventListener('submit', async (e) => {
@@ -480,6 +465,7 @@ uploadForm.addEventListener('submit', async (e) => {
             socket.disconnect();
         }
     });
+
 } // Close initializeApp function
 
 // Initialize everything when the DOM is ready
