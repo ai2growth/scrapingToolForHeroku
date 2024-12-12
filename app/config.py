@@ -21,7 +21,7 @@ class Config:
             SQLALCHEMY_DATABASE_URI = SQLALCHEMY_DATABASE_URI.replace('postgres://', 'postgresql://', 1)
     else:
         # Local SQLite database
-        SQLALCHEMY_DATABASE_URI = f'sqlite:///{os.path.join(basedir, "instance", "app.db")}"
+        SQLALCHEMY_DATABASE_URI = f'sqlite:///{os.path.join(basedir, "instance", "app.db")}'  # Fixed quote
     
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
@@ -59,13 +59,3 @@ class Config:
     # Memory settings
     MEMORY_THRESHOLD = 450  # MB
     GC_THRESHOLD = 400
-
-    # Test database connection
-    try:
-        logger.debug("Testing database connection...")
-        with app.app_context():
-            db.engine.connect()
-            logger.debug("Database connection successful!")
-    except Exception as e:
-        logger.error(f"Database connection failed: {str(e)}")
-        raise
