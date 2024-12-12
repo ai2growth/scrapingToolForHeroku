@@ -116,7 +116,6 @@ function initializeApp() {
     });
 
     try {
-        // Use the global configuration if available
         const serverUrl = window.socketConfig?.serverUrl || window.location.origin;
         const options = {
             ...(window.socketConfig?.options || {}),
@@ -125,9 +124,29 @@ function initializeApp() {
             reconnection: true,
             reconnectionAttempts: 5,
             reconnectionDelay: 1000,
-            timeout: 20000
+            timeout: 20000,
+            path: '/socket.io',
+            namespace: '/',
+            forceNew: true  // Add this line
         };
-    
+
+        // Add connection timeout
+        const connectionTimeout = setTimeout(() => {
+            if (!socket || !socket.connected) {
+                showError('Failed to connect to server. Please refresh the page.');
+            }
+        }, 5000);
+
+        socket = io(serverUrl, options);
+
+        socket.on('connect', () => {
+            clearTimeout(connectionTimeout);
+            console.log('Socket connected successfully:', socket.id);
+            const errorMessage = document.getElementById('error-message');
+            if (errorMessage) {
+                errorMessage.style.display = 'none';
+            }
+        });  
         console.log('Attempting socket connection to:', serverUrl, 'with options:', options);
         
         // Initialize socket with server URL and options
@@ -168,7 +187,34 @@ function initializeApp() {
     } catch (error) {
         console.error('Socket.IO initialization error:', error);
     }
-
+    function startProgressMonitoring() {
+        console.log('Starting progress monitoring...');
+        stopProgressMonitoring(); // Clear any existing interval
+        
+        let noUpdateCount = 0;
+        progressCheckInterval = setInterval(() => {
+            const timeSinceLastUpdate = Date.now() - lastUpdate;
+            if (timeSinceLastUpdate > 30000) { // 30 seconds
+                noUpdateCount++;
+                console.warn(`No progress updates received for ${noUpdateCount} intervals`);
+                
+                if (noUpdateCount >= 3) { // After 3 intervals without updates
+                    showError('Processing appears to be stuck. Please try again.');
+                    stopProgressMonitoring();
+                    resetUI();
+                    if (processButton) {
+                        processButton.disabled = false;
+                        processButton.innerHTML = 'Start Processing';
+                    }
+                } else {
+                    showNotification('Processing may be slow. Please wait...', 'warning');
+                }
+            } else {
+                noUpdateCount = 0;
+            }
+        }, 10000); // Check every 10 seconds
+    }
+    
    function fetchScrapeCount() {
         if (!socket || !socket.connected) {
             console.warn('Socket not connected, retrying in 2 seconds...');
@@ -305,75 +351,43 @@ function initializeApp() {
         stopProgressMonitoring();
     });
 
-    socket.on('processing_complete', function(data) {
-        console.log('Processing complete event received:', data);
-        if (data.csv_data) {
-            // Create a Blob from the CSV data
-            const blob = new Blob([data.csv_data], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
-            
-            // Create a link and trigger download
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `analysis_results_${new Date().toISOString().slice(0, 10)}.csv`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-            
-            // Reset UI
+
+    processForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        console.log('Process form submitted');
+    
+        const apiKey = document.getElementById('api_key').value;
+        const instructions = document.getElementById('instructions').value;
+        const filePath = document.getElementById('file_path').value;
+    
+        if (!apiKey || !instructions || !filePath) {
+            showError('Please complete all required fields');
+            return;
+        }
+    
+        try {
+            processButton.disabled = true;
+            processButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
+    
+            const payload = {
+                file_path: filePath,
+                api_key: apiKey,
+                instructions: instructions,
+                gpt_model: document.getElementById('gpt_model').value,
+                row_limit: parseInt(document.getElementById('row-limit').value) || null,
+                additional_columns: []
+            };
+    
+            socket.emit('start_processing', payload);
+    
+        } catch (error) {
+            console.error('Processing error:', error);
+            showError(error.message || 'Processing failed');
             processButton.disabled = false;
             processButton.innerHTML = 'Start Processing';
-            showNotification('Processing complete! Your file has been downloaded.', 'success');
         }
     });
 
-// In your existing processForm event listener, modify this part:
-processForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    console.log('Process form submitted');
-
-    if (!verifySocketConnection()) {
-        showError('Not connected to server. Please refresh the page.');
-        return;
-    }
-
-    const apiKey = document.getElementById('api_key').value;
-    const instructions = document.getElementById('instructions').value;
-
-    if (!apiKey || !instructions) {
-        showError('Please complete all required fields');
-        return;
-    }
-
-    try {
-        processButton.disabled = true;
-        processButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
-        startProgressMonitoring();
-
-        const payload = {
-            file_path: document.getElementById('file_path').value,
-            api_key: apiKey,
-            instructions: instructions,
-            gpt_model: document.getElementById('gpt_model').value,
-            row_limit: parseInt(document.getElementById('row-limit').value) || null,
-            additional_columns: []
-        };
-
-        console.log('Sending payload via Socket.IO:', payload);
-
-        // Only emit the Socket.IO event
-        socket.emit('start_processing', payload);
-
-    } catch (error) {
-        console.error('Processing error:', error);
-        showError(error.message || 'Processing failed');
-        processButton.disabled = false;
-        processButton.innerHTML = 'Start Processing';
-        stopProgressMonitoring();
-    }
-});
-  
 // Add this right after the processForm handler
 uploadForm.addEventListener('submit', async (e) => {
     e.preventDefault();

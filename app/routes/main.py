@@ -43,6 +43,7 @@ import urllib3.util.retry
 from requests.adapters import HTTPAdapter
 
 # Define Blueprint
+DEFAULT_NAMESPACE = '/'
 
 bp = Blueprint('main', __name__)
 
@@ -54,58 +55,52 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     logger.info(f'Client disconnected: {request.sid}')
-@socketio.on('start_processing')
+
+@socketio.on('start_processing', namespace='/')
 def handle_start_processing(data):
     logger.info(f'Processing started for client: {request.sid}')
+    
     try:
-        # Emit initial progress
-        emit('processing_progress', {
-            'current': 0,
-            'total': 100,
-            'status': 'starting'
-        })
+        # Validate the data
+        if not data.get('file_path') or not data.get('api_key') or not data.get('instructions'):
+            raise ValueError("Missing required fields")
+
+        # Call the process function directly
+        response = process()
         
-        # Create a request context
-        with current_app.test_request_context('/process', method='POST'):
-            # Preserve the current user
-            from flask_login import current_user as user
-            if user and user.is_authenticated:
-                login_user(user)
-            
-            # Create a custom request object with the data
-            class CustomRequest:
-                def __init__(self, json_data):
-                    self.json = json_data
-            
-            # Replace the request object with our custom one
-            import flask
-            flask.request = CustomRequest(data)
-            
-            # Call the process function
-            response = process()
-            
-            if isinstance(response, tuple):
-                response_data, status_code = response
-                if status_code != 200:
-                    raise Exception(response_data.get('error', 'Processing failed'))
-            
-            # Get the CSV data from the response
-            if hasattr(response, 'response'):
-                csv_data = response.response[0]
-                emit('processing_complete', {
-                    'status': 'complete',
-                    'message': 'Processing completed successfully',
-                    'csv_data': csv_data.decode('utf-8') if isinstance(csv_data, bytes) else csv_data
-                })
-            else:
-                raise Exception('Invalid response format')
-                
+        # Send the response back to the client
+        emit('processing_complete', {
+            'status': 'complete',
+            'message': 'Processing completed successfully',
+            'csv_data': response
+        }, namespace='/')
+        
     except Exception as e:
         logger.error(f'Processing error: {str(e)}')
         emit('processing_error', {
             'error': str(e),
             'message': 'An error occurred during processing'
-        })
+        }, namespace='/')
+
+# Add a helper function to validate the process request
+def validate_process_request(data):
+    """Validate the incoming process request data."""
+    errors = []
+    
+    if not data.get('file_path'):
+        errors.append('No file path provided')
+    elif not os.path.exists(data['file_path']):
+        errors.append('File does not exist')
+        
+    if not data.get('api_key'):
+        errors.append('No API key provided')
+        
+    if not data.get('instructions'):
+        errors.append('No instructions provided')
+        
+    return errors
+
+
 
 @socketio.on_error_default
 def default_error_handler(e):
@@ -373,25 +368,27 @@ if __name__ == "__main__":
             logger.warning(f"User '{username}' not found in the database.")
 
 
-
-
-def process_chunk(chunk, data):
-    """Process a chunk of data with memory optimization."""
+def process_chunk(chunk, data, socket_id):
+    """Process a chunk of data with progress updates."""
     try:
+        total_rows = len(chunk)
         chunk_results = []
-        scrapeops_client = get_scrapeops_client()
         
-        for _, row in chunk.iterrows():
-            # Check memory before processing each row
-            if not check_memory_threshold(threshold_mb=500):
-                optimize_memory()
-                
+        for index, row in chunk.iterrows():
+            # Emit progress for this chunk
+            progress = int((index / total_rows) * 100)
+            socketio.emit('processing_progress', {
+                'current': index,
+                'total': total_rows,
+                'progress': progress,
+                'status': 'processing chunk'
+            }, room=socket_id)
+            
             result = handle_single_row_with_additional_columns(
                 row=row,
                 instructions=data.get('instructions'),
                 additional_columns=data.get('additional_columns', []),
-                gpt_model=data.get('gpt_model', 'gpt-3.5-turbo'),
-                scrapeops_client=scrapeops_client
+                gpt_model=data.get('gpt_model', 'gpt-3.5-turbo')
             )
             chunk_results.append(result)
             
@@ -399,8 +396,6 @@ def process_chunk(chunk, data):
     except Exception as e:
         logger.error(f"Chunk processing error: {str(e)}")
         return []
-
-
 
 # Configuration for Scraping
 # =========================
