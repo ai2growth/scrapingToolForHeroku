@@ -115,47 +115,60 @@ function initializeApp() {
         numAdditionalColumns: !!numAdditionalColumns
     });
 
-    // 2. Socket.IO Setup
-    // 2. Socket.IO Setup
-
-// Modify your socket initialization in the initializeApp function
-try {
-    socket = io({
-        transports: ['websocket', 'polling'], // Allow fallback to polling
-        upgrade: true,
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-        autoConnect: true,  // Add this
-        path: '/socket.io'  // Add this
-    });
-
-    // Add connection success handler
-    socket.on('connect', () => {
-        console.log('Socket connected successfully');
-        // Clear any previous error messages
-        const errorMessage = document.getElementById('error-message');
-        if (errorMessage) {
-            errorMessage.style.display = 'none';
-        }
-    });
-
-    // Modify your connect_error handler
-    socket.on('connect_error', (error) => {
-        console.error('Socket connection error:', error);
-        // Only show error if connection fails multiple times
-        setTimeout(() => {
-            if (!socket.connected) {
-                showError('Connection error. Please refresh the page.');
+    try {
+        // Use the global configuration if available
+        const serverUrl = window.socketConfig?.serverUrl || window.location.origin;
+        const options = {
+            ...(window.socketConfig?.options || {}),
+            autoConnect: false,
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+            timeout: 20000
+        };
+    
+        console.log('Attempting socket connection to:', serverUrl, 'with options:', options);
+        
+        // Initialize socket with server URL and options
+        socket = io(serverUrl, options);
+    
+        // Add event handlers before connecting
+        socket.on('connect', () => {
+            console.log('Socket connected successfully:', socket.id);
+            const errorMessage = document.getElementById('error-message');
+            if (errorMessage) {
+                errorMessage.style.display = 'none';
             }
-        }, 3000); // Wait 3 seconds before showing error
-    });
+        });
+    
+        socket.on('connection_confirmed', (data) => {
+            console.log('Server confirmed connection:', data);
+        });
+    
+        socket.on('connect_error', (error) => {
+            console.warn('Socket connection error:', error);
+            // Only show error after multiple attempts
+            if (socket.reconnectionAttempts > 2) {
+                showError('Connection issues. Trying to reconnect...');
+            }
+        });
+    
+        socket.on('disconnect', (reason) => {
+            console.log('Socket disconnected:', reason);
+            if (reason === 'io server disconnect') {
+                socket.connect();
+            }
+        });
+    
+        // Now connect
+        socket.connect();
+    
+        console.log('Socket.IO initialization attempted');
+    } catch (error) {
+        console.error('Socket.IO initialization error:', error);
+    }
 
-    console.log('Socket.IO initialized');
-} catch (error) {
-    console.error('Socket.IO initialization error:', error);
-    showError('Failed to initialize real-time connection');
-}
 
     function fetchScrapeCount() {
         if (!socket || !socket.connected) {
