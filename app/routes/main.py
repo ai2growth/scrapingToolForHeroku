@@ -78,6 +78,7 @@ def handle_start_processing(data):
         
         # Update scrape count before processing
         try:
+            from flask_login import current_user
             result = update_user_scrape_count(current_user, total_rows)
             # Emit the updated scrape count
             emit('scrape_count_updated', {
@@ -88,7 +89,7 @@ def handle_start_processing(data):
         except Exception as e:
             logger.error(f"Failed to update scrape count: {str(e)}")
             raise
-
+        
         # Create a request context
         with current_app.test_request_context('/process', method='POST'):
             # Create a custom request object with the data
@@ -355,72 +356,35 @@ def scrape_single_site(url, scrapeops_client=None):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-
 def update_user_scrape_count(current_user, total_rows):
-    """
-    Updates the scrape count for the given user with improved validation and error handling.
-    """
+    """Updates the scrape count for the given user."""
     try:
-        # Input validation
-        if total_rows <= 0:
-            raise ValueError("Total rows must be positive")
+        # Log the state before the update
+        logger.info(f"Before update: User {current_user.username} has {current_user.scrapes_used} scrapes")
 
-        # Create a new session for this operation
-        from flask_sqlalchemy import SQLAlchemy
-        db = SQLAlchemy(current_app)
-        
-        # Get fresh user data
-        user = db.session.query(User).filter_by(id=current_user.id).with_for_update().first()
-        if not user:
-            raise ValueError("User not found")
+        # Update the user's scrape count within the application context
+        with current_app.app_context():
+            # Update the user's scrape count
+            current_user.scrapes_used += total_rows
+            
+            # Use the existing db instance from extensions
+            from app.extensions import db
+            
+            # Commit the changes
+            db.session.commit()
 
-        # Check if update would exceed limit
-        new_total = user.scrapes_used + total_rows
-        if new_total > user.scrape_limit:
-            raise ValueError(f"Update would exceed scrape limit. Current: {user.scrapes_used}, Limit: {user.scrape_limit}")
+            logger.info(f"After update: User {current_user.username} now has {current_user.scrapes_used} scrapes")
 
-        # Log initial state
-        logger.info(f"Before update: User {user.username} has {user.scrapes_used}/{user.scrape_limit} scrapes")
-
-        # Update count
-        user.scrapes_used = new_total
-
-        # Commit changes
-        db.session.commit()
-
-        # Log final state
-        logger.info(f"After update: User {user.username} now has {user.scrapes_used}/{user.scrape_limit} scrapes")
-
-        # Emit update event via Socket.IO
-        from flask_socketio import emit
-        emit('scrape_count_updated', {
-            'scrapes_used': user.scrapes_used,
-            'scrape_limit': user.scrape_limit
-        }, namespace='/')
-
-        return {
-            'scrapes_used': user.scrapes_used,
-            'scrape_limit': user.scrape_limit,
-            'success': True
-        }
+            return {
+                'scrapes_used': current_user.scrapes_used,
+                'scrape_limit': current_user.scrape_limit
+            }
 
     except Exception as e:
-        logger.error(f"Error updating scrape count: {str(e)}", exc_info=True)
+        logger.error(f"Error updating scrape count: {str(e)}")
+        from app.extensions import db
         db.session.rollback()
-        
-        # Emit error event
-        emit('scrape_count_error', {
-            'error': str(e),
-            'message': 'Failed to update scrape count'
-        }, namespace='/')
-        
-        return {
-            'success': False,
-            'error': str(e)
-        }
-
-    finally:
-        db.session.close()
+        raise
 
 if __name__ == "__main__":
     # Create the app and get app context
