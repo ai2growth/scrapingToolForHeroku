@@ -59,28 +59,81 @@ def handle_disconnect():
 @socketio.on('start_processing', namespace='/')
 def handle_start_processing(data):
     logger.info(f'Processing started for client: {request.sid}')
+    logger.debug(f'Received data: {data}')
     
     try:
         # Validate the data
         if not data.get('file_path') or not data.get('api_key') or not data.get('instructions'):
             raise ValueError("Missing required fields")
 
-        # Call the process function directly
-        response = process()
+        # Initialize OpenAI
+        openai.api_key = data['api_key']
         
-        # Send the response back to the client
+        # Read and process the CSV
+        df = pd.read_csv(data['file_path'])
+        if data.get('row_limit'):
+            df = df.head(int(data['row_limit']))
+            
+        # Process the data
+        results = []
+        total_rows = len(df)
+        
+        # Emit initial progress
+        emit('processing_progress', {
+            'current': 0,
+            'total': total_rows,
+            'status': 'processing'
+        })
+
+        # Process each row
+        for index, row in df.iterrows():
+            try:
+                result = handle_single_row_with_additional_columns(
+                    row=row,
+                    instructions=data['instructions'],
+                    additional_columns=data.get('additional_columns', []),
+                    gpt_model=data.get('gpt_model', 'gpt-3.5-turbo')
+                )
+                results.append(result)
+                
+                # Emit progress
+                emit('processing_progress', {
+                    'current': index + 1,
+                    'total': total_rows,
+                    'status': 'processing'
+                })
+                
+            except Exception as row_error:
+                logger.error(f'Error processing row {index}: {str(row_error)}')
+                results.append({
+                    'Websites': row.get('Websites', ''),
+                    'Error': str(row_error)
+                })
+
+        # Create final DataFrame
+        results_df = pd.DataFrame(results)
+        
+        # Convert to CSV string
+        output = io.StringIO()
+        results_df.to_csv(output, index=False)
+        csv_data = output.getvalue()
+        
+        # Emit completion with CSV data
         emit('processing_complete', {
             'status': 'complete',
             'message': 'Processing completed successfully',
-            'csv_data': response
-        }, namespace='/')
+            'csv_data': csv_data
+        })
+        
+        return True
         
     except Exception as e:
         logger.error(f'Processing error: {str(e)}')
         emit('processing_error', {
             'error': str(e),
             'message': 'An error occurred during processing'
-        }, namespace='/')
+        })
+        return False
 
 # Add a helper function to validate the process request
 def validate_process_request(data):
