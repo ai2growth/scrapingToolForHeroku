@@ -21,7 +21,7 @@ class Config:
             SQLALCHEMY_DATABASE_URI = SQLALCHEMY_DATABASE_URI.replace('postgres://', 'postgresql://', 1)
     else:
         # Local SQLite database
-        SQLALCHEMY_DATABASE_URI = f'sqlite:///{os.path.join(basedir, "instance", "app.db")}'
+        SQLALCHEMY_DATABASE_URI = f'sqlite:///{os.path.join(basedir, "instance", "app.db")}"
     
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
@@ -50,10 +50,22 @@ class Config:
     MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
     MAIL_DEFAULT_SENDER = os.environ.get('MAIL_USERNAME')
 
-        # ... other settings ...
+    # SQLAlchemy Pool Configuration
     SQLALCHEMY_POOL_SIZE = 20
     SQLALCHEMY_MAX_OVERFLOW = 10
     SQLALCHEMY_POOL_TIMEOUT = 30
     SQLALCHEMY_POOL_RECYCLE = 1800
+
+    # Memory settings
     MEMORY_THRESHOLD = 450  # MB
     GC_THRESHOLD = 400
+
+    # Test database connection
+    try:
+        logger.debug("Testing database connection...")
+        with app.app_context():
+            db.engine.connect()
+            logger.debug("Database connection successful!")
+    except Exception as e:
+        logger.error(f"Database connection failed: {str(e)}")
+        raise
