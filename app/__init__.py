@@ -1,9 +1,7 @@
-#/app/__init__.py
 import logging
 from flask import Flask
 from flask_migrate import Migrate
 from .extensions import db, login_manager, bcrypt, socketio
-import logging
 from app.utils.memory import get_memory_usage
 
 logging.basicConfig(
@@ -14,12 +12,21 @@ logger = logging.getLogger(__name__)
 
 # Initialize Flask-Migrate
 migrate = Migrate()
+
 def create_app():
     logger.debug("Starting application creation")
     app = Flask(__name__)
     
     logger.debug("Loading configuration")
-    app.config.from_object('config.Config')
+    try:
+        app.config.from_object('app.config.Config')
+        logger.debug("Configuration loaded successfully")
+        logger.debug(f"Upload folder: {app.config['UPLOAD_FOLDER']}")
+        logger.debug(f"Downloads folder: {app.config['DOWNLOADS_FOLDER']}")
+        logger.debug(f"Instance path: {app.config['INSTANCE_PATH']}")
+    except Exception as e:
+        logger.error(f"Failed to load configuration: {str(e)}")
+        raise
 
     # Initialize extensions
     logger.debug("Initializing database")
