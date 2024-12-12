@@ -68,6 +68,7 @@ let socket;
 let progressCheckInterval;
 let lastUpdate = Date.now();
 
+
 function startProgressMonitoring() {
     console.log('Starting progress monitoring...');
     progressCheckInterval = setInterval(() => {
@@ -116,12 +117,17 @@ function initializeApp() {
 
     // 2. Socket.IO Setup
     // 2. Socket.IO Setup
+
 try {
     socket = io({
-        transports: ['websocket', 'polling'],
-        upgrade: true,
+        transports: ['websocket'],
+        upgrade: false,  // Force WebSocket only
         reconnection: true,
-        reconnectionAttempts: 5
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        timeout: 60000,  // Increase timeout
+        pingTimeout: 60000,
+        pingInterval: 25000
     });
     console.log('Socket.IO initialized');
 } catch (error) {
@@ -277,64 +283,67 @@ try {
         stopProgressMonitoring();
     });
 
-    processForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-    
-        if (!verifySocketConnection()) {
-            showError('Not connected to server. Please refresh the page.');
-            return;
-        }
-    
-        const apiKey = document.getElementById('api_key').value;
-        const instructions = document.getElementById('instructions').value;
-    
-        if (!apiKey || !instructions) {
-            showError('Please complete all required fields');
-            return;
-        }
-    
-        processButton.disabled = true;
-        processButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
-    
-        startProgressMonitoring();
-    
-        try {
-            const payload = {
-                file_path: document.getElementById('file_path').value,
-                api_key: apiKey,
-                instructions: instructions,
-                gpt_model: document.getElementById('gpt_model').value,
-                row_limit: parseInt(document.getElementById('row-limit').value) || null,
-                additional_columns: []
-            };
-    
-            // Gather additional columns data
-            document.querySelectorAll('.additional-column').forEach(column => {
-                const name = column.querySelector('.column-name').value;
-                const instructions = column.querySelector('.column-instructions').value;
-                if (name && instructions) {
-                    payload.additional_columns.push({ name, instructions });
-                }
-            });
-    
-            const response = await fetch('/process', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-                credentials: 'include',
-                redirect: 'follow'
-            });
-    
-            // Check if we're being redirected to login
-            if (response.redirected) {
-                window.location.href = response.url;
-                return;
+// In your existing processForm event listener, modify this part:
+processForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    if (!verifySocketConnection()) {
+        showError('Not connected to server. Please refresh the page.');
+        return;
+    }
+
+    const apiKey = document.getElementById('api_key').value;
+    const instructions = document.getElementById('instructions').value;
+
+    if (!apiKey || !instructions) {
+        showError('Please complete all required fields');
+        return;
+    }
+
+    processButton.disabled = true;
+    processButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Processing...';
+
+    startProgressMonitoring();
+
+    try {
+        const payload = {
+            file_path: document.getElementById('file_path').value,
+            api_key: apiKey,
+            instructions: instructions,
+            gpt_model: document.getElementById('gpt_model').value,
+            row_limit: parseInt(document.getElementById('row-limit').value) || null,
+            additional_columns: []
+        };
+
+        // Gather additional columns data
+        document.querySelectorAll('.additional-column').forEach(column => {
+            const name = column.querySelector('.column-name').value;
+            const instructions = column.querySelector('.column-instructions').value;
+            if (name && instructions) {
+                payload.additional_columns.push({ name, instructions });
             }
-    
-            if (!response.ok) {
-                throw new Error(await response.text());
+        });
+
+        const response = await fetch('/process', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            credentials: 'include'
+        });
+
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+
+        // Handle successful response
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+            const data = await response.json();
+            if (data.error) {
+                throw new Error(data.error);
             }
-    
+            showNotification(data.message || 'Processing started successfully', 'success');
+        } else {
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -344,18 +353,17 @@ try {
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
-    
-            showNotification('Processing complete! File downloaded.', 'success');
-        } catch (error) {
-            console.error('Processing error:', error);
-            showError(error.message);
-        } finally {
-            processButton.disabled = false;
-            processButton.innerHTML = 'Start Processing';
-            stopProgressMonitoring();
-            setTimeout(resetUI, 5000);
         }
-    });
+
+    } catch (error) {
+        console.error('Processing error:', error);
+        showError(error.message);
+    } finally {
+        processButton.disabled = false;
+        processButton.innerHTML = 'Start Processing';
+        stopProgressMonitoring();
+    }
+});
  
   
 // Add this right after the processForm handler
