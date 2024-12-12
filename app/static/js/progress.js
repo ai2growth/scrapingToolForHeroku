@@ -118,34 +118,44 @@ function initializeApp() {
     // 2. Socket.IO Setup
     // 2. Socket.IO Setup
 
+// Modify your socket initialization in the initializeApp function
 try {
     socket = io({
-        transports: ['websocket'],
-        upgrade: false,  // Force WebSocket only
+        transports: ['websocket', 'polling'], // Allow fallback to polling
+        upgrade: true,
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
-        timeout: 60000,  // Increase timeout
-        pingTimeout: 60000,
-        pingInterval: 25000
+        autoConnect: true,  // Add this
+        path: '/socket.io'  // Add this
     });
+
+    // Add connection success handler
+    socket.on('connect', () => {
+        console.log('Socket connected successfully');
+        // Clear any previous error messages
+        const errorMessage = document.getElementById('error-message');
+        if (errorMessage) {
+            errorMessage.style.display = 'none';
+        }
+    });
+
+    // Modify your connect_error handler
+    socket.on('connect_error', (error) => {
+        console.error('Socket connection error:', error);
+        // Only show error if connection fails multiple times
+        setTimeout(() => {
+            if (!socket.connected) {
+                showError('Connection error. Please refresh the page.');
+            }
+        }, 3000); // Wait 3 seconds before showing error
+    });
+
     console.log('Socket.IO initialized');
 } catch (error) {
     console.error('Socket.IO initialization error:', error);
     showError('Failed to initialize real-time connection');
 }
-
-    socket.on('connect_error', (error) => {
-        console.error('Socket connection error:', error);
-        showError('Connection error. Please refresh the page.');
-    });
-
-    socket.on('disconnect', (reason) => {
-        console.log('Socket disconnected:', reason);
-        if (reason === 'io server disconnect') {
-            socket.connect();
-        }
-    });
 
     function fetchScrapeCount() {
         if (!socket || !socket.connected) {
