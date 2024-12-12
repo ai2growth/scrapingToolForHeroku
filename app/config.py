@@ -49,3 +49,11 @@ class Config:
     MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
     MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
     MAIL_DEFAULT_SENDER = os.environ.get('MAIL_USERNAME')
+
+        # ... other settings ...
+    SQLALCHEMY_POOL_SIZE = 20
+    SQLALCHEMY_MAX_OVERFLOW = 10
+    SQLALCHEMY_POOL_TIMEOUT = 30
+    SQLALCHEMY_POOL_RECYCLE = 1800
+    MEMORY_THRESHOLD = 450  # MB
+    GC_THRESHOLD = 400

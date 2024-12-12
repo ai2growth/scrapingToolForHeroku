@@ -74,67 +74,68 @@ def handle_start_processing(data):
         if data.get('row_limit'):
             df = df.head(int(data['row_limit']))
             
-        # Process the data
-        results = []
         total_rows = len(df)
         
-        # Emit initial progress
-        emit('processing_progress', {
-            'current': 0,
-            'total': total_rows,
-            'status': 'processing'
-        })
+        # Update scrape count before processing
+        try:
+            result = update_user_scrape_count(current_user, total_rows)
+            # Emit the updated scrape count
+            emit('scrape_count_updated', {
+                'scrapes_used': result['scrapes_used'],
+                'scrape_limit': result['scrape_limit']
+            }, namespace='/')
+            logger.info(f"Scrape count updated: {result}")
+        except Exception as e:
+            logger.error(f"Failed to update scrape count: {str(e)}")
+            raise
 
-        # Process each row
-        for index, row in df.iterrows():
-            try:
-                result = handle_single_row_with_additional_columns(
-                    row=row,
-                    instructions=data['instructions'],
-                    additional_columns=data.get('additional_columns', []),
-                    gpt_model=data.get('gpt_model', 'gpt-3.5-turbo')
-                )
-                results.append(result)
-                
-                # Emit progress
-                emit('processing_progress', {
-                    'current': index + 1,
-                    'total': total_rows,
-                    'status': 'processing'
+        # Create a request context
+        with current_app.test_request_context('/process', method='POST'):
+            # Create a custom request object with the data
+            class CustomRequest:
+                def __init__(self, json_data):
+                    self.json = json_data
+            
+            # Replace the request object with our custom one
+            import flask
+            flask.request = CustomRequest(data)
+            
+            # Call the process function
+            response = process()
+            
+            if isinstance(response, tuple):
+                response_data, status_code = response
+                if status_code != 200:
+                    raise Exception(response_data.get('error', 'Processing failed'))
+            
+            # Get the CSV data from the response
+            if hasattr(response, 'response'):
+                csv_data = response.response[0]
+                emit('processing_complete', {
+                    'status': 'complete',
+                    'message': 'Processing completed successfully',
+                    'csv_data': csv_data.decode('utf-8') if isinstance(csv_data, bytes) else csv_data
                 })
-                
-            except Exception as row_error:
-                logger.error(f'Error processing row {index}: {str(row_error)}')
-                results.append({
-                    'Websites': row.get('Websites', ''),
-                    'Error': str(row_error)
-                })
+            else:
+                raise Exception('Invalid response format')
 
-        # Create final DataFrame
-        results_df = pd.DataFrame(results)
-        
-        # Convert to CSV string
-        output = io.StringIO()
-        results_df.to_csv(output, index=False)
-        csv_data = output.getvalue()
-        
-        # Emit completion with CSV data
-        emit('processing_complete', {
-            'status': 'complete',
-            'message': 'Processing completed successfully',
-            'csv_data': csv_data
-        })
-        
-        return True
-        
+        # After processing is complete, verify the scrape count one more time
+        try:
+            current_count = {
+                'scrapes_used': current_user.scrapes_used,
+                'scrape_limit': current_user.scrape_limit
+            }
+            emit('scrape_count_updated', current_count, namespace='/')
+            logger.info(f"Final scrape count verification: {current_count}")
+        except Exception as e:
+            logger.error(f"Error verifying final scrape count: {str(e)}")
+
     except Exception as e:
         logger.error(f'Processing error: {str(e)}')
         emit('processing_error', {
             'error': str(e),
             'message': 'An error occurred during processing'
         })
-        return False
-
 # Add a helper function to validate the process request
 def validate_process_request(data):
     """Validate the incoming process request data."""
@@ -357,47 +358,69 @@ def scrape_single_site(url, scrapeops_client=None):
 
 def update_user_scrape_count(current_user, total_rows):
     """
-    Updates the scrape count for the given user.
-
-    Args:
-        current_user (User): The user object to update.
-        total_rows (int): Number of rows to add to the scrape count.
-
-    Returns:
-        dict: Updated scrape count and scrape limit.
+    Updates the scrape count for the given user with improved validation and error handling.
     """
     try:
-        # Log the state before the update
-        logger.info(f"Before update: User {current_user.username} has {current_user.scrapes_used} scrapes out of {current_user.scrape_limit}")
+        # Input validation
+        if total_rows <= 0:
+            raise ValueError("Total rows must be positive")
 
-        # Update the user's scrape count
-        current_user.scrapes_used += total_rows
+        # Create a new session for this operation
+        from flask_sqlalchemy import SQLAlchemy
+        db = SQLAlchemy(current_app)
+        
+        # Get fresh user data
+        user = db.session.query(User).filter_by(id=current_user.id).with_for_update().first()
+        if not user:
+            raise ValueError("User not found")
 
-        # Explicitly add the user to the session
-        db.session.add(current_user)
+        # Check if update would exceed limit
+        new_total = user.scrapes_used + total_rows
+        if new_total > user.scrape_limit:
+            raise ValueError(f"Update would exceed scrape limit. Current: {user.scrapes_used}, Limit: {user.scrape_limit}")
 
-        # Commit the changes to the database
+        # Log initial state
+        logger.info(f"Before update: User {user.username} has {user.scrapes_used}/{user.scrape_limit} scrapes")
+
+        # Update count
+        user.scrapes_used = new_total
+
+        # Commit changes
         db.session.commit()
 
-        # Refresh the user object to ensure it reflects the latest state
-        db.session.refresh(current_user)
+        # Log final state
+        logger.info(f"After update: User {user.username} now has {user.scrapes_used}/{user.scrape_limit} scrapes")
 
-        # Log the updated state
-        logger.info(f"After update: User {current_user.username} now has {current_user.scrapes_used} scrapes out of {current_user.scrape_limit}")
-        logger.info("Database commit successful")
+        # Emit update event via Socket.IO
+        from flask_socketio import emit
+        emit('scrape_count_updated', {
+            'scrapes_used': user.scrapes_used,
+            'scrape_limit': user.scrape_limit
+        }, namespace='/')
 
         return {
-            'scrapes_used': current_user.scrapes_used,
-            'scrape_limit': current_user.scrape_limit
+            'scrapes_used': user.scrapes_used,
+            'scrape_limit': user.scrape_limit,
+            'success': True
         }
 
-    except Exception as db_error:
-        # Log and handle database errors
-        logger.error(f"Database update error: {str(db_error)}", exc_info=True)
-
-        # Rollback the session to maintain database integrity
+    except Exception as e:
+        logger.error(f"Error updating scrape count: {str(e)}", exc_info=True)
         db.session.rollback()
-        raise
+        
+        # Emit error event
+        emit('scrape_count_error', {
+            'error': str(e),
+            'message': 'Failed to update scrape count'
+        }, namespace='/')
+        
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+    finally:
+        db.session.close()
 
 if __name__ == "__main__":
     # Create the app and get app context
@@ -456,7 +479,7 @@ def process_chunk(chunk, data, socket_id):
 class ScrapingConfig:
     TIMEOUT = 15  # Heroku-friendly timeout
     MAX_CONTENT_LENGTH = 1500  # ~300 words
-    MAX_WORKERS = 20  # Conservative for Heroku
+    MAX_WORKERS = min(32, (os.cpu_count() or 1) * 4)  # Conservative for Heroku
     
     # Rate limits (delay between requests)
     RATE_LIMITS = {
@@ -563,7 +586,7 @@ def process():
         scraping_params = optimize_scraping_params(current_user)
 
         # Process in chunks to manage memory
-        chunk_size = 100
+        chunk_size = 50
         for i in range(0, total_rows, chunk_size):
             chunk = df[i:i + chunk_size]
 
