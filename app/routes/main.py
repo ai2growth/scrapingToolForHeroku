@@ -89,7 +89,7 @@ def handle_start_processing(data):
         except Exception as e:
             logger.error(f"Failed to update scrape count: {str(e)}")
             raise
-        
+
         # Create a request context
         with current_app.test_request_context('/process', method='POST'):
             # Create a custom request object with the data
@@ -362,30 +362,27 @@ def update_user_scrape_count(current_user, total_rows):
         # Log the state before the update
         logger.info(f"Before update: User {current_user.username} has {current_user.scrapes_used} scrapes")
 
-        # Update the user's scrape count within the application context
-        with current_app.app_context():
-            # Update the user's scrape count
-            current_user.scrapes_used += total_rows
-            
-            # Use the existing db instance from extensions
-            from app.extensions import db
-            
-            # Commit the changes
-            db.session.commit()
+        # Update the user's scrape count
+        current_user.scrapes_used += total_rows
 
-            logger.info(f"After update: User {current_user.username} now has {current_user.scrapes_used} scrapes")
+        # Use the existing db instance from extensions
+        from app.extensions import db
+        
+        # Commit the changes
+        db.session.commit()
 
-            return {
-                'scrapes_used': current_user.scrapes_used,
-                'scrape_limit': current_user.scrape_limit
-            }
+        logger.info(f"After update: User {current_user.username} now has {current_user.scrapes_used} scrapes")
+
+        return {
+            'scrapes_used': current_user.scrapes_used,
+            'scrape_limit': current_user.scrape_limit
+        }
 
     except Exception as e:
         logger.error(f"Error updating scrape count: {str(e)}")
         from app.extensions import db
         db.session.rollback()
         raise
-
 if __name__ == "__main__":
     # Create the app and get app context
     app = create_app()
