@@ -327,45 +327,42 @@ def get_openai_response(prompt, model="gpt-3.5-turbo"):
     except Exception as e:
         return f"Analysis error: {str(e)}"
 
-def handle_single_row_with_additional_columns(row, instructions, additional_columns, gpt_model, scrapeops_client=None):
-    """Fast row processing with parallel analysis."""
-    result = {
-        'Websites': row.get('Websites', ''),
-        'Scraped_Content': ''  # Initialize scraped content
-    }
+def handle_single_row_with_additional_columns(row, instructions, additional_columns, gpt_model):
+    """Process a single row with any additional column analyses."""
+    result = {}
     
     try:
-        # Single scrape attempt
-        scrape_result = scrape_single_site(row.get('Websites', ''), scrapeops_client)
+        # Scrape the website
+        scrape_result = scrape_single_site(row.get('Websites', ''))
         
         if scrape_result.get('success'):
+            # Store the scraped content
             result['Scraped_Content'] = scrape_result['scraped_content']
             
-            # Process all analyses in parallel
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                futures = {}
-                
-                # Submit main analysis
-                if instructions:
-                    prompt = f"Analyze: {scrape_result['scraped_content']}\nInstructions: {instructions}"
-                    futures['Analysis'] = executor.submit(get_openai_response, prompt, gpt_model)
-                
-                # Submit additional analyses
-                for col in additional_columns:
-                    if col.get('name') and col.get('instructions'):
-                        prompt = f"Analyze: {scrape_result['scraped_content']}\nInstructions: {col.get('instructions')}"
-                        futures[col['name']] = executor.submit(get_openai_response, prompt, gpt_model)
-                
-                # Collect results
-                for name, future in futures.items():
-                    result[name] = future.result()
+            # Perform main analysis
+            if instructions:
+                analysis_prompt = f"Analyze this company based on the following instructions:\n{instructions}\n\nContent: {scrape_result['scraped_content']}"
+                result['Analysis'] = get_openai_response(analysis_prompt, gpt_model)
+            
+            # Process additional columns - Add logging to debug
+            logger.info(f"Processing additional columns: {additional_columns}")
+            for col in additional_columns:
+                if col.get('name') and col.get('instructions'):
+                    logger.info(f"Processing additional column: {col['name']}")
+                    col_prompt = f"Analyze this company based on the following instructions:\n{col['instructions']}\n\nContent: {scrape_result['scraped_content']}"
+                    result[col['name']] = get_openai_response(col_prompt, gpt_model)
+                    logger.info(f"Added analysis for column {col['name']}")
         else:
-            result['Error'] = scrape_result.get('error', 'Failed to scrape')
+            result['Scraped_Content'] = ''
+            result['Analysis'] = f"Scraping failed: {scrape_result.get('error', 'Unknown error')}"
             
     except Exception as e:
+        logger.error(f"Error processing row: {str(e)}")
         result['Error'] = str(e)
     
+    logger.info(f"Final result keys: {result.keys()}")
     return result
+
 
 def scrape_single_site(url, scrapeops_client=None):
     """Fast, single-attempt scraping with clean output."""

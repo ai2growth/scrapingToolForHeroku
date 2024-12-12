@@ -401,7 +401,6 @@ function initializeApp() {
             stopProgressMonitoring();
         }
     });
-
     processForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         console.log('Process form submitted');
@@ -409,6 +408,18 @@ function initializeApp() {
         const apiKey = document.getElementById('api_key').value;
         const instructions = document.getElementById('instructions').value;
         const filePath = document.getElementById('file_path').value;
+    
+        // Collect additional columns data
+        const additionalColumns = [];
+        document.querySelectorAll('.additional-column').forEach(column => {
+            const name = column.querySelector('.column-name').value;
+            const instructions = column.querySelector('.column-instructions').value;
+            if (name && instructions) {
+                additionalColumns.push({ name, instructions });
+            }
+        });
+    
+        console.log('Additional columns:', additionalColumns); // Add this debug log
     
         if (!apiKey || !instructions || !filePath) {
             showError('Please complete all required fields');
@@ -425,8 +436,10 @@ function initializeApp() {
                 instructions: instructions,
                 gpt_model: document.getElementById('gpt_model').value,
                 row_limit: parseInt(document.getElementById('row-limit').value) || null,
-                additional_columns: []
+                additional_columns: additionalColumns  // Make sure this is being sent
             };
+    
+            console.log('Sending payload:', payload); // Add this debug log
     
             socket.emit('start_processing', payload);
     
@@ -436,8 +449,7 @@ function initializeApp() {
             processButton.disabled = false;
             processButton.innerHTML = 'Start Processing';
         }
-    });
-
+    });    
 // Add this right after the processForm handler
 uploadForm.addEventListener('submit', async (e) => {
     e.preventDefault();
