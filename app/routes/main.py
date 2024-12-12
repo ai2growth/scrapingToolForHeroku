@@ -54,7 +54,6 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     logger.info(f'Client disconnected: {request.sid}')
-
 @socketio.on('start_processing')
 def handle_start_processing(data):
     logger.info(f'Processing started for client: {request.sid}')
@@ -66,14 +65,21 @@ def handle_start_processing(data):
             'status': 'starting'
         })
         
-        # Create a request context and preserve the current user
+        # Create a request context
         with current_app.test_request_context('/process', method='POST'):
-            # Set up the request data
-            request._get_current_object().json = data
+            # Preserve the current user
+            from flask_login import current_user as user
+            if user and user.is_authenticated:
+                login_user(user)
             
-            # Import the login manager and set the user
-            from flask_login import login_manager
-            login_manager.reload_user()
+            # Create a custom request object with the data
+            class CustomRequest:
+                def __init__(self, json_data):
+                    self.json = json_data
+            
+            # Replace the request object with our custom one
+            import flask
+            flask.request = CustomRequest(data)
             
             # Call the process function
             response = process()
@@ -99,7 +105,7 @@ def handle_start_processing(data):
         emit('processing_error', {
             'error': str(e),
             'message': 'An error occurred during processing'
-        }) 
+        })
 
 @socketio.on_error_default
 def default_error_handler(e):
