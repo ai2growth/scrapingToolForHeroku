@@ -1,22 +1,19 @@
-from flask import Flask 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+# main.py
+# Python Standard Library
 import os
-import uuid
-import json
-import logging
-import time
-import threading
-import io
-from datetime import datetime, timedelta
 import re
-from app.utils.memory import optimize_memory, check_memory_threshold, get_memory_usage
-# Third-Party Library Imports
-import requests
-import pandas as pd
-import openai
-from werkzeug.utils import secure_filename
-from bs4 import BeautifulSoup
+import io
+import json
+import uuid
+import logging
+import threading
+import time
+from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Flask and Extensions
 from flask import (
+    Flask,
     Blueprint,
     render_template,
     request,
@@ -29,22 +26,48 @@ from flask import (
 )
 from flask_login import login_required, current_user, login_user, logout_user
 from flask_mail import Message
-
-# Local Application Imports
-from app.extensions import db, mail, socketio
-from app.forms import ForgotPasswordForm
-from app.models import User
-
 from flask_socketio import emit, send
-from flask import request
+from werkzeug.utils import secure_filename
 
-# Disable retries for requests and urllib3
+# Database and Models
+from app.extensions import db, mail, socketio
+from app.models import User
+from app.forms import ForgotPasswordForm
+
+# Third-Party Libraries
+import pandas as pd
+import requests
+import openai
+from bs4 import BeautifulSoup
 import urllib3.util.retry
 from requests.adapters import HTTPAdapter
 
-# Define Blueprint
-DEFAULT_NAMESPACE = '/'
+# Local Application Imports
+from app.utils.memory import (
+    optimize_memory,
+    check_memory_threshold,
+    get_memory_usage
+)
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("app.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Constants and Configuration
+DEFAULT_NAMESPACE = '/'
+SCRAPEOPS_API_KEY = '0139316f-c2f9-44ad-948c-f7a3439511c2'
+MAX_WORKERS = 10
+MEMORY_THRESHOLD = 500
+CHUNK_SIZE = 100
+
+# Initialize Blueprint
 bp = Blueprint('main', __name__)
 
 @socketio.on('connect')
@@ -542,6 +565,29 @@ def clean_results(results_list):
 # =========================
 # Routes
 # =========================
+@bp.route('/health')
+def health_check():
+    """Health check endpoint for Render."""
+    try:
+        # Test database connection
+        db.session.execute('SELECT 1')
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'healthy',
+            'message': 'Application is running',
+            'database': 'connected',
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return jsonify({
+            'status': 'unhealthy',
+            'message': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+
 
 @bp.route('/process', methods=['POST'])
 @login_required
