@@ -1,9 +1,9 @@
-#wsgi.py
 import logging
 from flask import Flask
 from flask_migrate import Migrate
-from .extensions import db, login_manager, bcrypt, socketio
-from app.utils.memory import get_memory_usage
+from .extensions import db, login_manager, bcrypt
+from flask_socketio import SocketIO
+from app.utils.memory import get_memory_usage, check_memory_threshold, optimize_memory
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -14,10 +14,18 @@ logger = logging.getLogger(__name__)
 # Initialize Flask-Migrate
 migrate = Migrate()
 
+# Initialize SocketIO
+socketio = SocketIO(
+    logger=True,
+    engineio_logger=True,
+    cors_allowed_origins="*",
+    async_mode='eventlet'
+)
+
 def create_app():
     logger.debug("Starting application creation")
     app = Flask(__name__)
-    
+
     logger.debug("Loading configuration")
     try:
         app.config.from_object('app.config.Config')
@@ -49,14 +57,8 @@ def create_app():
     logger.debug("Initializing login manager")
     login_manager.init_app(app)
 
-    logger.debug("Initializing SocketIO with eventlet")
-    socketio.init_app(
-        app,
-        cors_allowed_origins="*",
-        async_mode='eventlet',
-        logger=True,
-        engineio_logger=True
-    )
+    logger.debug("Initializing SocketIO")
+    socketio.init_app(app)
 
     # Configure login manager
     login_manager.login_view = 'auth.login'

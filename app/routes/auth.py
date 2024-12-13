@@ -1,11 +1,11 @@
-from flask import Blueprint, render_template, url_for, flash, redirect, request, current_app
-from app.extensions import db, PasswordHasher
-from app.models import User
-from flask_login import login_user, current_user, logout_user, login_required
-from app.forms import LoginForm, ForgotPasswordForm, ResetPasswordForm, RegisterForm
-from app.utils import send_password_reset_email
-from datetime import datetime
 import logging
+from datetime import datetime
+from flask import Blueprint, render_template, url_for, flash, redirect, request, current_app
+from flask_login import login_user, logout_user, login_required, current_user
+from app.models import User, db
+from app.utils import send_password_reset_email
+from app.utils.password import PasswordHasher
+from app.forms import LoginForm, RegisterForm, ForgotPasswordForm, ResetPasswordForm
 
 logger = logging.getLogger(__name__)
 
@@ -15,18 +15,23 @@ bp = Blueprint('auth', __name__)
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('main.index'))
-
+    
     form = LoginForm()
     if form.validate_on_submit():
-        user = User.query.filter_by(email=form.email.data).first()
-        if user and PasswordHasher.check_password_hash(user.password, form.password.data):
-            login_user(user)
-            flash('Login successful!', 'success')
-            next_page = request.args.get('next')
-            return redirect(next_page or url_for('main.index'))
-        else:
-            flash('Invalid email or password', 'danger')
-
+        try:
+            user = User.query.filter_by(email=form.email.data).first()
+            
+            if user and user.check_password(form.password.data):
+                login_user(user)
+                next_page = request.args.get('next')
+                flash('Login successful!', 'success')
+                return redirect(next_page or url_for('main.index'))
+            else:
+                flash('Invalid email or password', 'danger')
+        except Exception as e:
+            logger.error(f"Login error: {str(e)}")
+            flash('An error occurred during login', 'danger')
+            
     return render_template('auth/login.html', form=form)
 
 @bp.route('/logout')
@@ -85,6 +90,7 @@ def reset_password(token):
         return redirect(url_for('auth.login'))
 
     return render_template('auth/reset_password.html', form=form)
+
 @bp.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:

@@ -50,6 +50,13 @@ from app.utils.memory import (
     get_memory_usage
 )
 
+# Constants and Configuration
+DEFAULT_NAMESPACE = '/'
+SCRAPEOPS_API_KEY = '0139316f-c2f9-44ad-948c-f7a3439511c2'
+MAX_WORKERS = 10
+MEMORY_THRESHOLD = 500
+CHUNK_SIZE = 100
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -61,12 +68,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Constants and Configuration
-DEFAULT_NAMESPACE = '/'
-SCRAPEOPS_API_KEY = '0139316f-c2f9-44ad-948c-f7a3439511c2'
-MAX_WORKERS = 10
-MEMORY_THRESHOLD = 500
-CHUNK_SIZE = 100
+
 
 # Initialize Blueprint
 bp = Blueprint('main', __name__)
@@ -254,24 +256,6 @@ except ImportError:
     SCRAPEOPS_ENABLED = False
     logging.warning("ScrapeOps not available. Using fallback scraping method.")
 
-# Constants
-SCRAPEOPS_API_KEY = '0139316f-c2f9-44ad-948c-f7a3439511c2'
-MAX_WORKERS = 10  
-MEMORY_THRESHOLD = 500  
-CHUNK_SIZE = 100  
-
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("app.log"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
 # =========================
 # Helper Functions & Classes
 # =========================
@@ -293,20 +277,47 @@ def get_scrapeops_client():
             return None
     return None
 
-
-@app.route('/get_scrape_count')
-def get_scrape_count():
-    if not current_user.is_authenticated:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
+@bp.route('/test-scrape')
+@login_required
+def test_scrape():
+    """Test endpoint to verify scraping functionality."""
     try:
-        user_scrapes = ScrapeCount.query.filter_by(user_id=current_user.id).first()
+        # Test URL
+        test_url = "https://example.com"
+        
+        # Test ScrapeOps
+        scrapeops_client = get_scrapeops_client()
+        scrapeops_result = None
+        if scrapeops_client:
+            try:
+                scrapeops_result = scrape_single_site(test_url, scrapeops_client)
+            except Exception as e:
+                scrapeops_result = f"ScrapeOps Error: {str(e)}"
+
+        # Test direct request
+        direct_result = scrape_single_site(test_url)
+
         return jsonify({
-            'scrapes_used': user_scrapes.count if user_scrapes else 0,
-            'scrape_limit': current_user.scrape_limit
+            'status': 'test complete',
+            'scrapeops_enabled': SCRAPEOPS_ENABLED,
+            'scrapeops_result': scrapeops_result,
+            'direct_result': direct_result,
+            'memory_usage': get_memory_usage()
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        })
+    
+@bp.route('/get_scrape_count')
+@login_required
+def get_scrape_count():
+    """Get current scrape count for user."""
+    return jsonify({
+        'scrapes_used': current_user.scrapes_used,
+        'scrape_limit': current_user.scrape_limit
+    })
 
 
 def allowed_file(filename):
@@ -395,21 +406,35 @@ def handle_single_row_with_additional_columns(row, instructions, additional_colu
 
 
 def scrape_single_site(url, scrapeops_client=None):
-    """Fast, single-attempt scraping with clean output."""
+    """Optimized scraping function with better error handling."""
     try:
         if not url or pd.isna(url):
+            logger.debug(f"Invalid URL provided: {url}")
             return {"success": False, "error": "No URL provided"}
 
+        # Clean and validate URL
+        url = url.strip()
         if not url.startswith(('http://', 'https://')):
             url = f'https://{url}'
 
+        logger.debug(f"Attempting to scrape: {url}")
+
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9",
         }
 
-        # Single attempt, no retries
-        response = scrapeops_client.get(url, headers=headers, timeout=10) if scrapeops_client else requests.get(url, headers=headers, timeout=10)
-        
+        # Use ScrapeOps if available
+        if scrapeops_client and SCRAPEOPS_ENABLED:
+            logger.debug("Using ScrapeOps client")
+            response = scrapeops_client.get(url, headers=headers, timeout=10)
+        else:
+            logger.debug("Using direct requests")
+            response = requests.get(url, headers=headers, timeout=10)
+
+        logger.debug(f"Response status code: {response.status_code}")
+
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             
@@ -417,20 +442,33 @@ def scrape_single_site(url, scrapeops_client=None):
             for tag in soup(['script', 'style', 'meta', 'noscript', 'header', 'footer', 'nav']):
                 tag.decompose()
 
-            # Get and clean text
-            text = soup.get_text(separator=' ')
-            # Fast text cleaning
-            text = re.sub(r'[^\w\s.,!?-]', ' ', text)
-            text = re.sub(r'\s+', ' ', text)
+            # Get text with minimal processing
+            text = ' '.join(soup.stripped_strings)
             text = text[:1500]  # Limit to 1500 characters
+            
+            logger.debug(f"Successfully scraped {len(text)} characters")
             
             return {
                 "success": True,
-                "scraped_content": text.strip()
+                "scraped_content": text.strip(),
+                "status_code": response.status_code
             }
-        return {"success": False, "error": f"Status: {response.status_code}"}
+            
+        logger.warning(f"Failed to scrape {url} - Status code: {response.status_code}")
+        return {
+            "success": False,
+            "error": f"HTTP Status: {response.status_code}",
+            "status_code": response.status_code
+        }
 
+    except requests.Timeout:
+        logger.error(f"Timeout while scraping {url}")
+        return {"success": False, "error": "Request timed out"}
+    except requests.RequestException as e:
+        logger.error(f"Request error while scraping {url}: {str(e)}")
+        return {"success": False, "error": str(e)}
     except Exception as e:
+        logger.error(f"Unexpected error while scraping {url}: {str(e)}")
         return {"success": False, "error": str(e)}
 
 def update_user_scrape_count(current_user, total_rows):
@@ -621,260 +659,6 @@ def health_check():
             'timestamp': datetime.now().isoformat()
         }), 500
 
-@contextmanager
-def get_db_session():
-    """Provide a transactional scope around a series of operations."""
-    session = db.create_scoped_session()
-    try:
-        yield session
-        session.commit()
-    except Exception as e:
-        session.rollback()
-        raise
-    finally:
-        session.close()
-
-
-@bp.route('/process', methods=['POST'])
-@login_required
-def process():
-    """Handle processing with real-time updates via Socket.IO."""
-    try:
-        # Log memory usage at the start
-        log_memory_usage("before processing")
-
-        # Get SocketIO instance and incoming request data
-        socketio_instance = get_socketio()
-        data = request.json
-
-        # Emit start event
-        socketio_instance.emit('processing_progress', {
-            'current': 0,
-            'total': 100,
-            'status': 'starting'
-        })
-
-        # Memory check and optimization
-        if not check_memory_threshold(threshold_mb=500):
-            optimize_memory()
-            log_memory_usage("after memory optimization")
-
-        # Initialize ScrapeOps client and OpenAI API key
-        scrapeops_client = get_scrapeops_client()
-        openai.api_key = data.get('api_key')
-
-        # Load CSV file and clean unnamed columns
-        df = pd.read_csv(data['file_path'])
-        df = df.loc[:, ~df.columns.str.contains('^Unnamed:')]
-
-        # Apply row limit
-        row_limit = min(
-            int(data.get('row_limit', 20000)),
-            current_user.scrape_limit - current_user.scrapes_used,
-            20000
-        )
-        df = df.head(row_limit)
-
-        total_rows = len(df)
-        results = []
-        processed = 0
-
-        # Log memory after loading the data
-        log_memory_usage("after loading CSV")
-
-        # Get optimized parameters for this user
-        scraping_params = optimize_scraping_params(current_user)
-
-        # Process in chunks to manage memory
-        chunk_size = 50
-        for i in range(0, total_rows, chunk_size):
-            chunk = df[i:i + chunk_size]
-
-            # Emit progress before processing chunk
-            current_progress = int((i / total_rows) * 100)
-            socketio_instance.emit('processing_progress', {
-                'current': i,
-                'total': total_rows,
-                'progress': current_progress,
-                'status': 'processing'
-            })
-
-            # Process chunk with ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=scraping_params['max_workers']) as executor:
-                futures = {
-                    executor.submit(
-                        handle_single_row_with_additional_columns,
-                        row=row,
-                        instructions=data.get('instructions'),
-                        additional_columns=data.get('additional_columns', []),
-                        gpt_model=data.get('gpt_model', 'gpt-3.5-turbo'),
-                        scrapeops_client=scrapeops_client
-                    ): idx
-                    for idx, row in chunk.iterrows()
-                }
-
-                for future in as_completed(futures):
-                    try:
-                        result = future.result()
-                        results.append(result)
-                        processed += 1
-
-                        # Update progress more frequently
-                        if processed % 5 == 0:  # Update every 5 rows
-                            progress = int((processed / total_rows) * 100)
-                            socketio_instance.emit('processing_progress', {
-                                'current': processed,
-                                'total': total_rows,
-                                'progress': progress,
-                                'status': 'processing'
-                            })
-
-                    except Exception as e:
-                        logger.error(f"Error processing row: {str(e)}")
-                        results.append({
-                            'Websites': df.iloc[futures[future]]['Websites'],
-                            'Error': str(e)
-                        })
-
-            # Optimize memory after each chunk
-            if i % (chunk_size * 5) == 0:
-                optimize_memory()
-
-        # Create DataFrame from results
-        results_df = pd.DataFrame(results)
-
-        # Define column order
-        column_order = ['Websites']
-
-        # Add original columns (excluding completely empty ones)
-        df_no_empty = df.dropna(axis=1, how='all')  # Remove completely empty columns
-        original_cols = [col for col in df_no_empty.columns if col != 'Websites']
-        column_order.extend(original_cols)
-
-        # Add specific columns in the desired order
-        if 'Scraped_Content' in results_df.columns:
-            column_order.append('Scraped_Content')
-
-        if 'Analysis' in results_df.columns:
-            column_order.append('Analysis')
-
-        # Include additional analysis columns
-        additional_columns = data.get('additional_columns', [])
-        for column in additional_columns:
-            if column.get('name') and column['name'] in results_df.columns:
-                column_order.append(column['name'])
-
-        if 'Error' in results_df.columns:
-            column_order.append('Error')
-
-        # Emit progress update before merging
-        socketio_instance.emit('processing_progress', {
-            'current': total_rows,
-            'total': total_rows,
-            'progress': 90,
-            'status': 'finalizing'
-        })
-
-        # Merge original and results DataFrames
-        merged_df = pd.merge(
-            df[['Websites'] + original_cols],
-            results_df,
-            on='Websites',
-            how='left'
-        )
-
-        # Select only existing columns and drop empty ones
-        final_cols = [col for col in column_order if col in merged_df.columns]
-        final_df = merged_df[final_cols]
-
-        # Clean up remaining unnamed columns and replace NaN with empty string
-        final_df = final_df.loc[:, ~final_df.columns.str.contains('^Unnamed:')]
-        string_columns = final_df.select_dtypes(include=['object']).columns
-        final_df[string_columns] = final_df[string_columns].fillna('')
-
-        # Update scrape count
-        try:
-            result = update_user_scrape_count(current_user, total_rows)
-            
-            # Emit updated scrape count
-            socketio_instance.emit('scrape_count_updated', {
-                'scrapes_used': result['scrapes_used'],
-                'scrape_limit': result['scrape_limit']
-            })
-            
-            logger.info("Scrape count updated successfully")
-        except Exception as e:
-            logger.error(f"Failed to update scrape count: {str(e)}")
-
-        # Create CSV response
-        output = io.StringIO()
-        final_df.to_csv(output, index=False)
-        output.seek(0)
-
-        # Emit completion status
-        socketio_instance.emit('processing_complete', {
-            'status': 'complete',
-            'message': 'Processing completed successfully',
-            'rows_processed': total_rows
-        })
-
-        # Prepare and return response
-        response = make_response(output.getvalue())
-        response.headers.update({
-            'Content-Type': 'text/csv',
-            'Content-Disposition': f'attachment; filename=analysis_results_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-        })
-
-        logger.info(f"Processing complete. Processed {total_rows} rows with columns: {final_df.columns.tolist()}")
-        return response
-
-    except Exception as e:
-        # Log error and memory usage
-        logger.error(f"Processing error: {str(e)}")
-        log_memory_usage("on error")
-
-        # Emit error to client
-        socketio_instance.emit('processing_error', {
-            'error': str(e),
-            'message': 'An error occurred during processing'
-        })
-
-        # Attempt memory optimization
-        try:
-            optimize_memory()
-        except:
-            pass
-        return jsonify({
-            'error': str(e),
-            'message': 'An error occurred during processing. Please try again.',
-            'details': {
-                'type': type(e).__name__,
-                'location': 'process route',
-                'timestamp': datetime.now().isoformat()
-            }
-        }), 500
-
-    finally:
-        # Final cleanup and progress update
-        try:
-            # Final memory optimization
-            optimize_memory()
-            log_memory_usage("after final cleanup")
-
-            # Final status update
-            socketio_instance.emit('processing_status', {
-                'status': 'completed',
-                'timestamp': datetime.now().isoformat()
-            })
-
-            logger.info("Process route completed execution")
-
-        except Exception as cleanup_error:
-            logger.error(f"Error in final cleanup: {str(cleanup_error)}")
-
-
-
-
 @bp.route('/')
 def index():
     return render_template('index.html')
@@ -978,21 +762,6 @@ def upload():
     except Exception as e:
         logger.error(f"Unexpected error during upload: {str(e)}")
         return jsonify({"error": "An unexpected error occurred. Please try again."}), 500
-
-
-@bp.route('/forgot-password', methods=['GET', 'POST'])
-def forgot_password():
-    form = ForgotPasswordForm()
-    if form.validate_on_submit():
-        user = User.query.filter_by(email=form.email.data).first()
-        if user:
-            # Generate password reset token
-            token = user.get_reset_token()
-            # Send email with reset link
-            flash('Password reset instructions have been sent to your email.', 'info')
-            return redirect(url_for('auth.login'))
-        flash('Email address not found.', 'error')
-    return render_template('auth/forgot_password.html', form=form)
 
 if __name__ == '__main__':
     from app import create_app

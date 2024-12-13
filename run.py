@@ -1,7 +1,9 @@
 import logging
-from flask import Flask
-from app import create_app
-from app.extensions import socketio
+import eventlet
+from app import create_app, socketio
+
+# Monkey patch for eventlet
+eventlet.monkey_patch()
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -12,10 +14,9 @@ app = create_app()
 logger.debug("Application initialized successfully")
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    logger.debug(f"Starting server on port {port}")
+    logger.debug("Starting server with eventlet")
     socketio.run(app,
-                host='0.0.0.0',
-                port=port,
                 debug=True,
-                allow_unsafe_werkzeug=True)
+                host='127.0.0.1',
+                port=5000,
+                use_reloader=True)
