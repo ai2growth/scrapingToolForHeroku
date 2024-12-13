@@ -81,137 +81,99 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     logger.info(f'Client disconnected: {request.sid}')
-
 @socketio.on('start_processing', namespace='/')
 def handle_start_processing(data):
+    """Handle the start_processing event."""
     logger.info(f'Processing started for client: {request.sid}')
     logger.debug(f'Received data: {data}')
-    
-    try:
-        # Validate the data
-        if not data.get('file_path') or not data.get('api_key') or not data.get('instructions'):
-            raise ValueError("Missing required fields")
 
+    # Add validation logging
+    if not data:
+        logger.error("No data received")
+        emit('processing_error', {'error': 'No data received', 'status': 'error'})
+        return False
+
+    required_fields = ['file_path', 'api_key', 'instructions']
+    if not all(field in data for field in required_fields):
+        missing_fields = ", ".join([field for field in required_fields if field not in data])
+        logger.error(f"Missing required fields: {missing_fields}. Received fields: {list(data.keys())}")
+        emit('processing_error', {
+            'error': f'Missing required fields: {missing_fields}',
+            'status': 'error'
+        })
+        return False
+
+    try:
         # Initialize OpenAI
+        logger.debug("Initializing OpenAI with API key")
         openai.api_key = data['api_key']
-        
-        # Read and process the CSV
+
+        # Read CSV
+        logger.debug(f"Reading CSV from {data['file_path']}")
         original_df = pd.read_csv(data['file_path'])
         
-        # Remove completely empty columns
-        df = original_df.dropna(axis=1, how='all')
-        
-        # Apply row limit if specified
-        if data.get('row_limit'):
-            df = df.head(int(data['row_limit']))
-            
-        total_rows = len(df)
-        
-        # Update scrape count
-        try:
-            result = update_user_scrape_count(current_user, total_rows)
-            emit('scrape_count_updated', {
-                'scrapes_used': result['scrapes_used'],
-                'scrape_limit': result['scrape_limit']
-            }, namespace='/')
-            logger.info(f"Scrape count updated: {result}")
-        except Exception as e:
-            logger.error(f"Failed to update scrape count: {str(e)}")
-            raise
-
-        # Process the data
+        # Process rows
+        total_rows = len(original_df)
         results = []
         
-        # Emit initial progress
-        emit('processing_progress', {
-            'current': 0,
-            'total': total_rows,
-            'status': 'processing'
-        }, namespace='/')
-
-        # Process each row
-        for index, row in df.iterrows():
+        for index, row in original_df.iterrows():
             try:
-                # Get the analysis result
-                analysis_result = handle_single_row_with_additional_columns(
+                result = handle_single_row_with_additional_columns(
                     row=row,
                     instructions=data['instructions'],
                     additional_columns=data.get('additional_columns', []),
                     gpt_model=data.get('gpt_model', 'gpt-3.5-turbo')
                 )
-                
-                # Combine original row data with analysis results
-                combined_result = {col: row[col] for col in df.columns}
-                combined_result.update(analysis_result)
-                
-                results.append(combined_result)
+                results.append(result)
                 
                 # Emit progress
                 emit('processing_progress', {
                     'current': index + 1,
                     'total': total_rows,
                     'status': 'processing'
-                }, namespace='/')
+                })
                 
-            except Exception as row_error:
-                logger.error(f'Error processing row {index}: {str(row_error)}')
-                # Include original row data even if analysis fails
-                error_result = {col: row[col] for col in df.columns}
-                error_result['Error'] = str(row_error)
-                results.append(error_result)
+            except Exception as e:
+                logger.error(f"Error processing row {index}: {str(e)}")
+                results.append({
+                    'error': str(e),
+                    'row_index': index
+                })
 
-        # Create final DataFrame
-        results_df = pd.DataFrame(results)
-        
-        # Ensure consistent column order
-        # Start with original columns
-        column_order = [col for col in df.columns if col in results_df.columns]
-        
-        # Add analysis columns
-        analysis_columns = ['Scraped_Content', 'Analysis']
-        column_order.extend([col for col in analysis_columns if col in results_df.columns])
-        
-        # Add additional analysis columns
-        if data.get('additional_columns'):
-            for col in data['additional_columns']:
-                if col.get('name') and col['name'] in results_df.columns:
-                    column_order.append(col['name'])
-        
-        # Add error column if it exists
-        if 'Error' in results_df.columns:
-            column_order.append('Error')
-            
-        # Reorder columns
-        results_df = results_df[column_order]
-        
-        # Clean up the DataFrame
-        # Replace NaN with empty string for string columns
-        string_columns = results_df.select_dtypes(include=['object']).columns
-        results_df[string_columns] = results_df[string_columns].fillna('')
-        
-        # Convert to CSV string
+        # Create output CSV
         output = io.StringIO()
-        results_df.to_csv(output, index=False)
-        csv_data = output.getvalue()
+        pd.DataFrame(results).to_csv(output, index=False)
         
-        logger.info(f"Processing complete. Final columns: {results_df.columns.tolist()}")
-        
-        # Emit completion with CSV data
+        # Emit completion
         emit('processing_complete', {
             'status': 'complete',
-            'message': 'Processing completed successfully',
-            'csv_data': csv_data
-        }, namespace='/')
+            'csv_data': output.getvalue()
+        })
         
         return True
-        
+
     except Exception as e:
-        logger.error(f'Processing error: {str(e)}')
+        logger.error(f"Processing error: {str(e)}")
         emit('processing_error', {
             'error': str(e),
-            'message': 'An error occurred during processing'
-        }, namespace='/')
+            'status': 'error'
+        })
         return False
+@bp.route('/test-socket')
+def test_socket():
+    """Test Socket.IO connection."""
+    try:
+        socketio.emit('test', {'data': 'Test message'}, namespace='/')
+        return jsonify({
+            'status': 'success',
+            'message': 'Socket.IO test message sent'
+        })
+    except Exception as e:
+        logger.error(f"Socket.IO test failed: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
 
 # Add a helper function to validate the process request
 def validate_process_request(data):

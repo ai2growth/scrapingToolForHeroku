@@ -8,7 +8,13 @@ from flask_mail import Mail
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # Initialize Flask extensions
-db = SQLAlchemy(engine_options={'pool_pre_ping': True})
+db = SQLAlchemy(engine_options={
+    'pool_pre_ping': True,
+    'pool_size': 20,
+    'max_overflow': 10,
+    'pool_timeout': 30,
+    'pool_recycle': 1800
+})
 login_manager = LoginManager()
 migrate = Migrate()
 csrf = CSRFProtect() 

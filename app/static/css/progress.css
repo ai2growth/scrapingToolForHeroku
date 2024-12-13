@@ -17,3 +17,34 @@
 #progress-text {
     color: #666;
 }
+/* Add at the end of your progress.css file */
+.socket-status {
+    position: fixed;
+    bottom: 10px;
+    right: 10px;
+    padding: 5px 10px;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.status-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.status-indicator.connected { background: #28a745; }
+.status-indicator.disconnected { background: #dc3545; }
+.status-indicator.reconnecting { 
+    background: #ffc107;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    50% { opacity: 0.5; }
+}

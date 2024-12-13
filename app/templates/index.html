@@ -45,26 +45,30 @@
                         <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#aboutModal">About</a>
                     </li>
                 </ul>
-                <ul class="navbar-nav">
-                    {% if current_user.is_authenticated %}
-                        <li class="nav-item">
-                            <span class="nav-link">
-                                Scrapes: {{ current_user.scrapes_used }}/{{ current_user.scrape_limit }}
-                            </span>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('auth.logout') }}">Logout ({{ current_user.username }})</a>
-                        </li>
-                    {% else %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('auth.login') }}">Login</a>
-                        </li>
-                    {% endif %}
-                </ul>
+                    <!-- Find this section in the navbar -->
+                    <ul class="navbar-nav">
+                        {% if current_user.is_authenticated %}
+                            <li class="nav-item">
+                                <span class="nav-link" id="scrape-count">
+                                    Scrapes: {{ current_user.scrapes_used }}/{{ current_user.scrape_limit }}
+                                </span>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('auth.logout') }}">Logout ({{ current_user.username }})</a>
+                            </li>
+                        {% else %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('auth.login') }}">Login</a>
+                            </li>
+                        {% endif %}
+                    </ul>
             </div>
         </div>
     </nav>
-
+    <div id="socket-status" class="socket-status">
+        <span class="status-indicator"></span>
+        <span class="status-text">Disconnected</span>
+    </div>
     <!-- Instructions Modal -->
     <div class="modal fade" id="instructionsModal" tabindex="-1" aria-labelledby="instructionsModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg">
@@ -246,6 +250,8 @@
         </div> <!-- Close card-body -->
     </div> <!-- Close card -->
 </div>
+
+
 </div>
 </div>
 <script>
