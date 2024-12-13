@@ -596,6 +596,40 @@ def clean_results(results_list):
 # =========================
 # Routes
 # =========================
+
+@bp.route('/test-db')
+def test_db():
+    """Test database connection directly."""
+    logger.info("Testing database connection")
+    try:
+        engine = db.get_engine()
+        with engine.connect() as conn:
+            result = conn.execute(text('SELECT 1')).scalar()
+            logger.info(f"Database test successful: {result}")
+            return jsonify({
+                'status': 'success',
+                'connection': 'valid',
+                'result': result
+            })
+    except Exception as e:
+        logger.error(f"Database test failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'error_type': type(e).__name__
+        }), 500
+
+@bp.route('/env-check')
+def env_check():
+    """Check environment variables."""
+    logger.info("Checking environment variables")
+    return jsonify({
+        'database_url': bool(current_app.config.get('SQLALCHEMY_DATABASE_URI')),
+        'debug': current_app.config.get('DEBUG'),
+        'testing': current_app.config.get('TESTING'),
+        'env': current_app.config.get('ENV')
+    })
+
 # =========================
 # Database Utilities
 # =========================
@@ -613,9 +647,7 @@ def get_db_session():
     finally:
         session.close()
 
-# =========================
-# Routes
-# =========================
+
 @bp.route('/health')
 def health_check():
     """Health check endpoint for Render."""
@@ -664,38 +696,8 @@ def health_check():
             'timestamp': datetime.now().isoformat()
         }), 500
 
-# Fix this section in main.py
-@bp.route('/test-db')
-def test_db():
-    """Test database connection directly."""
-    logger.info("Testing database connection")
-    try:
-        engine = db.get_engine()
-        with engine.connect() as conn:
-            result = conn.execute(text('SELECT 1')).scalar()
-            logger.info(f"Database test successful: {result}")
-            return jsonify({
-                'status': 'success',
-                'connection': 'valid',
-                'result': result
-            })
-    except Exception as e:
-        logger.error(f"Database test failed: {str(e)}", exc_info=True)
-        return jsonify({
-            'status': 'error',
-            'message': str(e),
-            'error_type': type(e).__name__
-        }), 500
 
-@bp.route('/env-check')  # This was incorrectly formatted
-def env_check():
-    """Check environment variables."""
-    logger.info("Checking environment variables")
-    return jsonify({
-        'database_url': bool(current_app.config.get('SQLALCHEMY_DATABASE_URI')),
-        'debug': current_app.config.get('DEBUG'),
-        'testing': current_app.config.get('T
-
+@bp.route('/routes')
 def list_routes():
     """List all registered routes."""
     routes = []
