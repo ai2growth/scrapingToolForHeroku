@@ -81,84 +81,44 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     logger.info(f'Client disconnected: {request.sid}')
-@socketio.on('start_processing', namespace='/')
+
+
+@socketio.on('start_processing')
 def handle_start_processing(data):
-    """Handle the start_processing event."""
     logger.info(f'Processing started for client: {request.sid}')
     logger.debug(f'Received data: {data}')
 
-    # Add validation logging
-    if not data:
-        logger.error("No data received")
-        emit('processing_error', {'error': 'No data received', 'status': 'error'})
-        return False
-
-    required_fields = ['file_path', 'api_key', 'instructions']
-    if not all(field in data for field in required_fields):
-        missing_fields = ", ".join([field for field in required_fields if field not in data])
-        logger.error(f"Missing required fields: {missing_fields}. Received fields: {list(data.keys())}")
-        emit('processing_error', {
-            'error': f'Missing required fields: {missing_fields}',
-            'status': 'error'
-        })
-        return False
-
     try:
-        # Initialize OpenAI
-        logger.debug("Initializing OpenAI with API key")
-        openai.api_key = data['api_key']
+        # Log validation steps
+        logger.debug("Validating input data...")
+        if not data:
+            logger.error("No data received")
+            return {'status': 'error', 'error': 'No data received'}
 
-        # Read CSV
-        logger.debug(f"Reading CSV from {data['file_path']}")
-        original_df = pd.read_csv(data['file_path'])
-        
-        # Process rows
-        total_rows = len(original_df)
-        results = []
-        
-        for index, row in original_df.iterrows():
-            try:
-                result = handle_single_row_with_additional_columns(
-                    row=row,
-                    instructions=data['instructions'],
-                    additional_columns=data.get('additional_columns', []),
-                    gpt_model=data.get('gpt_model', 'gpt-3.5-turbo')
-                )
-                results.append(result)
-                
-                # Emit progress
-                emit('processing_progress', {
-                    'current': index + 1,
-                    'total': total_rows,
-                    'status': 'processing'
-                })
-                
-            except Exception as e:
-                logger.error(f"Error processing row {index}: {str(e)}")
-                results.append({
-                    'error': str(e),
-                    'row_index': index
-                })
+        # Log required fields
+        required_fields = ['file_path', 'api_key', 'instructions', 'gpt_model']
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            logger.error(f"Missing required fields: {missing_fields}")
+            return {'status': 'error', 'error': f'Missing fields: {", ".join(missing_fields)}'}
 
-        # Create output CSV
-        output = io.StringIO()
-        pd.DataFrame(results).to_csv(output, index=False)
-        
-        # Emit completion
-        emit('processing_complete', {
-            'status': 'complete',
-            'csv_data': output.getvalue()
-        })
-        
-        return True
+        # Log file check
+        logger.debug(f"Checking file path: {data['file_path']}")
+        if not os.path.exists(data['file_path']):
+            logger.error(f"File not found: {data['file_path']}")
+            return {'status': 'error', 'error': 'File not found'}
+
+        # Log processing start
+        logger.info("Starting processing with parameters:")
+        logger.info(f"Model: {data.get('gpt_model')}")
+        logger.info(f"Row limit: {data.get('row_limit')}")
+        logger.info(f"Additional columns: {len(data.get('additional_columns', []))}")
+
+        # Your existing processing code...
 
     except Exception as e:
-        logger.error(f"Processing error: {str(e)}")
-        emit('processing_error', {
-            'error': str(e),
-            'status': 'error'
-        })
-        return False
+        logger.exception("Error in handle_start_processing")
+        return {'status': 'error', 'error': str(e)}
 @bp.route('/test-socket')
 def test_socket():
     """Test Socket.IO connection."""

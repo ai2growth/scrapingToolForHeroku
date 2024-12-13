@@ -567,20 +567,39 @@ function initializeApp() {
 
                 // Emit processing event with proper payload
                 socket.emit('start_processing', { 
-                    api_model: gptModel, // Matching Python backend field
+                    api_model: gptModel,
                     row_limit: rowLimit, 
                     api_key: apiKey, 
                     instructions: instructions, 
                     file_path: filePath, 
                     additional_columns: additionalColumns 
                 }, (response) => {
-                    if (response.status !== 'ok') {
+                    console.log('Server response:', response);  // Debug log
+                    
+                    if (!response) {
+                        console.error('No response from server');
+                        showError('No response from server');
+                        resetUI();
+                        return;
+                    }
+                
+                    if (response.status === 'error') {
+                        console.error('Server error:', response.error);
                         showError(response.error || 'Processing failed to start.');
                         resetUI();
-                    } else {
-                        showNotification('Processing started.', 'info');
-                        startProgressMonitoring();
+                        return;
                     }
+                
+                    if (response.status !== 'ok') {
+                        console.error('Unexpected response status:', response.status);
+                        showError('Unexpected server response');
+                        resetUI();
+                        return;
+                    }
+                
+                    console.log('Processing started successfully');
+                    showNotification('Processing started.', 'info');
+                    startProgressMonitoring();
                 });
             });
         }
