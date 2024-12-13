@@ -637,34 +637,65 @@ def get_db_session():
 # =========================
 # Routes
 # =========================
-
 @bp.route('/health')
 def health_check():
     """Health check endpoint for Render."""
+    logger.info("Starting health check")
     try:
-        # Create a new session for this request
-        session = db.create_scoped_session()
-        try:
-            # Test database connection using SQLAlchemy text()
-            session.execute(text('SELECT 1'))
-            session.commit()
-            
-            return jsonify({
-                'status': 'healthy',
-                'message': 'Application is running',
-                'database': 'connected',
-                'timestamp': datetime.now().isoformat()
-            }), 200
-        finally:
-            session.close()
+        # Use existing session
+        logger.debug("Attempting database connection")
+        db.session.execute(text('SELECT 1'))
+        db.session.commit()
+        
+        response = {
+            'status': 'healthy',
+            'message': 'Application is running',
+            'database': 'connected',
+            'timestamp': datetime.now().isoformat()
+        }
+        logger.info("Health check successful")
+        return jsonify(response), 200
             
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        return jsonify({
+        logger.error(f"Health check failed: {str(e)}", exc_info=True)  # Add full traceback
+        response = {
             'status': 'unhealthy',
             'message': str(e),
+            'error_type': type(e).__name__,  # Add error type
             'timestamp': datetime.now().isoformat()
+        }
+        return jsonify(response), 500
+
+@bp.route('/test-db')
+def test_db():
+    """Test database connection directly."""
+    try:
+        # Test raw connection
+        engine = db.get_engine()
+        with engine.connect() as conn:
+            result = conn.execute(text('SELECT 1')).scalar()
+            return jsonify({
+                'status': 'success',
+                'connection': 'valid',
+                'result': result
+            })
+    except Exception as e:
+        logger.error(f"Database test failed: {str(e)}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'error_type': type(e).__name__
         }), 500
+
+@bp.route('/env-check')
+def env_check():
+    """Check environment variables."""
+    return jsonify({
+        'database_url': bool(current_app.config.get('SQLALCHEMY_DATABASE_URI')),
+        'debug': current_app.config.get('DEBUG'),
+        'testing': current_app.config.get('TESTING'),
+        'env': current_app.config.get('ENV')
+    })
 
 @bp.route('/')
 def index():
