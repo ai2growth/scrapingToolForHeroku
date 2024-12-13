@@ -60,10 +60,15 @@
                     <div class="card-body">
                         <h4 class="card-title text-center mb-4">Step 1: Upload CSV</h4>
                         {% if current_user.is_authenticated %}
-                            <form id="uploadForm">
+                            <form id="uploadForm" enctype="multipart/form-data">
                                 <div class="mb-3">
                                     <label for="file-input" class="form-label">Select CSV File</label>
-                                    <input type="file" class="form-control" id="file-input" accept=".csv" required>
+                                    <input type="file" 
+                                           class="form-control" 
+                                           id="file-input" 
+                                           name="file" 
+                                           accept=".csv" 
+                                           required>
                                 </div>
                                 <button type="submit" id="upload-button" class="btn btn-primary btn-lg">
                                     <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
@@ -79,7 +84,7 @@
                         {% endif %}
                     </div> <!-- Close card-body -->
                 </div> <!-- Close card -->
-            </div>
+            </div> 
 
             <!-- Step 2: Configuration Section (Corrected Version) -->
             <div class="col-md-6" id="config-section" style="display: none;">
