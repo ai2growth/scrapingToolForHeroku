@@ -1,4 +1,8 @@
+// progress.js
+
+// ========================================
 // Global Variables
+// ========================================
 let socket;
 let progressTimeout;
 let lastProgressUpdate = Date.now();
@@ -8,7 +12,23 @@ const MAX_RECONNECTION_ATTEMPTS = 5;
 let reconnectionAttempts = 0;
 let isReconnecting = false;
 
+// ========================================
 // Helper Functions
+// ========================================
+
+/**
+ * Capitalizes the first letter of a string.
+ * @param {string} string - The string to capitalize.
+ * @returns {string} - The capitalized string.
+ */
+function capitalizeFirstLetter(string) {
+    return string.charAt(0).toUpperCase() + string.slice(1);
+}
+
+/**
+ * Displays an error message to the user.
+ * @param {string} message - The error message to display.
+ */
 function showError(message) {
     console.error('Error:', message);
     const alertContainer = document.getElementById('alert-container');
@@ -31,6 +51,11 @@ function showError(message) {
     }
 }
 
+/**
+ * Displays a notification message to the user.
+ * @param {string} message - The notification message.
+ * @param {string} type - The type of alert ('success', 'info', etc.).
+ */
 function showNotification(message, type = 'success') {
     console.log(`${type}: ${message}`);
     const alertContainer = document.getElementById('alert-container');
@@ -54,11 +79,15 @@ function showNotification(message, type = 'success') {
     }
 }
 
-function capitalizeFirstLetter(string) {
-    return string.charAt(0).toUpperCase() + string.slice(1);
-}
-
+// ========================================
 // Form Validation Functions
+// ========================================
+
+/**
+ * Validates the process form data.
+ * @param {FormData} formData - The form data to validate.
+ * @returns {Object} - An object containing validation errors.
+ */
 function validateProcessForm(formData) {
     // Add form validation logging
     console.log('Validating form data:', {
@@ -117,6 +146,10 @@ function validateProcessForm(formData) {
     return errors;
 }
 
+/**
+ * Displays form validation errors on the UI.
+ * @param {Object} errors - An object containing validation errors.
+ */
 function showFormErrors(errors) {
     // Clear previous errors
     clearFormErrors();
@@ -134,6 +167,9 @@ function showFormErrors(errors) {
     });
 }
 
+/**
+ * Clears all form validation errors from the UI.
+ */
 function clearFormErrors() {
     document.querySelectorAll('.is-invalid').forEach(input => {
         input.classList.remove('is-invalid');
@@ -143,7 +179,15 @@ function clearFormErrors() {
     });
 }
 
+// ========================================
 // Additional Columns Management Functions
+// ========================================
+
+/**
+ * Generates HTML for an additional analysis column.
+ * @param {number} index - The index of the column.
+ * @returns {string} - The HTML string for the column.
+ */
 function generateColumnHTML(index) {
     return `
         <div class="form-row align-items-center mb-3" id="additional-column-${index}">
@@ -162,6 +206,10 @@ function generateColumnHTML(index) {
     `;
 }
 
+/**
+ * Handles the addition of additional analysis columns based on user selection.
+ * @param {Event} event - The change event.
+ */
 function handleAddAdditionalColumns(event) {
     const num = parseInt(event.target.value, 10);
     const container = document.getElementById('additional-columns-container');
@@ -172,6 +220,10 @@ function handleAddAdditionalColumns(event) {
     }
 }
 
+/**
+ * Handles the removal of an additional analysis column.
+ * @param {Event} event - The click event.
+ */
 function handleRemoveColumn(event) {
     if (event.target.classList.contains('remove-column-button')) {
         const index = event.target.getAttribute('data-index');
@@ -182,7 +234,13 @@ function handleRemoveColumn(event) {
     }
 }
 
+// ========================================
 // Reset UI Function Enhancements
+// ========================================
+
+/**
+ * Resets the UI to its initial state.
+ */
 function resetUI() {
     // Reset upload form
     const uploadForm = document.getElementById('uploadForm');
@@ -200,7 +258,10 @@ function resetUI() {
     const uploadButton = document.getElementById('upload-button');
     if (uploadButton) {
         uploadButton.disabled = false;
-        uploadButton.textContent = 'Upload & Configure';
+        uploadButton.innerHTML = `
+            <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+            Upload & Configure
+        `;
     }
 
     // Hide configuration section
@@ -210,7 +271,7 @@ function resetUI() {
     }
 
     // Clear file info
-    const fileInfo = document.getElementById('file-info');
+    const fileInfo = document.getElementById('resultsMessage');
     if (fileInfo) {
         fileInfo.innerHTML = '';
     }
@@ -218,7 +279,8 @@ function resetUI() {
     // Reset process button
     const processButton = document.getElementById('process-button');
     if (processButton) {
-        processButton.disabled = true;
+        processButton.disabled = false;
+        processButton.textContent = 'Start Processing';
     }
 
     // Clear alerts
@@ -233,13 +295,23 @@ function resetUI() {
     // Hide progress elements
     const progressDiv = document.getElementById('overall-progress');
     const operationStatus = document.getElementById('operation-status');
+    const progressTimestamp = document.getElementById('progress-timestamp');
     if (progressDiv) progressDiv.style.display = 'none';
     if (operationStatus) operationStatus.style.display = 'none';
+    if (progressTimestamp) progressTimestamp.textContent = '';
 
     // Stop progress monitoring
     stopProgressMonitoring();
 }
 
+// ========================================
+// Validate Form Function
+// ========================================
+
+/**
+ * Validates the upload form before submission.
+ * @returns {boolean} - True if the form is valid, false otherwise.
+ */
 function validateForm() {
     const fileInput = document.getElementById('file-input');
     if (!fileInput || !fileInput.files || !fileInput.files[0]) {
@@ -256,7 +328,14 @@ function validateForm() {
     return true;
 }
 
+// ========================================
 // Socket Connection Verification Function
+// ========================================
+
+/**
+ * Verifies if the Socket.IO connection is active.
+ * @returns {boolean} - True if connected, false otherwise.
+ */
 function verifySocketConnection() {
     console.log('Socket state:', {
         exists: !!socket,
@@ -267,12 +346,19 @@ function verifySocketConnection() {
     if (socket && socket.connected) {
         return true;
     } else {
-        showError('Socket is not connected. Please check your connection.');
+        showError('Socket connection lost. Please refresh the page.');
         return false;
     }
 }
 
+// ========================================
 // Socket Status Indicator Functions
+// ========================================
+
+/**
+ * Updates the socket status indicator in the UI.
+ * @param {string} status - The current socket status.
+ */
 function updateSocketStatus(status) {
     const statusIndicator = document.querySelector('#socket-status .status-indicator');
     const statusText = document.querySelector('#socket-status .status-text');
@@ -298,7 +384,13 @@ function updateSocketStatus(status) {
     }
 }
 
+// ========================================
 // Progress Monitoring Functions
+// ========================================
+
+/**
+ * Starts monitoring the progress by checking for updates.
+ */
 function startProgressMonitoring() {
     console.log('Starting progress monitoring...');
     progressTimeout = setInterval(() => {
@@ -310,6 +402,9 @@ function startProgressMonitoring() {
     }, 5000); // Check every 5 seconds
 }
 
+/**
+ * Stops monitoring the progress.
+ */
 function stopProgressMonitoring() {
     console.log('Stopping progress monitoring...');
     clearInterval(progressTimeout);
@@ -317,6 +412,9 @@ function stopProgressMonitoring() {
     lastProgressUpdate = Date.now();
 }
 
+/**
+ * Updates the progress timestamp display.
+ */
 function updateProgressTimestamp() {
     lastProgressUpdate = Date.now();
     const timestampElement = document.getElementById('progress-timestamp');
@@ -328,67 +426,233 @@ function updateProgressTimestamp() {
     }
 }
 
-// Initialize the application when the DOM is fully loaded
+// ========================================
+// Handle Upload Function
+// ========================================
+
+/**
+ * Handles the upload form submission.
+ * @param {FormData} formData - The form data containing the file.
+ * @param {File} file - The selected file.
+ */
+function handleUpload(formData, file) {
+    const uploadButton = document.getElementById('upload-button');
+    const uploadSpinner = uploadButton.querySelector('.spinner-border');
+
+    // Show spinner
+    uploadSpinner.classList.remove('d-none');
+    uploadButton.disabled = true;
+    uploadButton.innerHTML = `
+        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+        Uploading & Configure
+    `;
+
+    fetch('/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            showError(data.error);
+            return;
+        }
+        document.getElementById('file_path').value = data.file_path;
+
+        const fileInfo = document.getElementById('resultsMessage');
+        if (fileInfo) {
+            fileInfo.innerHTML = `
+                <div class="alert alert-info">
+                    <strong>File loaded:</strong> ${data.row_count} rows
+                    <br>
+                    <small>Available columns: ${data.columns.join(', ')}</small>
+                </div>
+            `;
+        }
+        document.getElementById('config-section').style.display = 'block';
+        showNotification('File uploaded successfully! Configure your analysis settings.', 'success');
+    })
+    .catch(error => {
+        console.error('Upload error:', error);
+        showError('Upload failed. Please try again.');
+    })
+    .finally(() => {
+        // Hide spinner
+        uploadSpinner.classList.add('d-none');
+        uploadButton.disabled = false;
+        uploadButton.innerHTML = `
+            <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+            Upload & Configure
+        `;
+    });
+}
+
+// ========================================
+// Handle Process Function
+// ========================================
+
+/**
+ * Handles the process form submission.
+ * @param {FormData} formData - The form data containing processing parameters.
+ */
+function handleProcess(formData) {
+    // Add validation check at the start
+    const errors = validateProcessForm(formData);
+    if (Object.keys(errors).length > 0) {
+        showFormErrors(errors);
+        return;
+    }
+
+    // Prepare payload
+    const payload = {
+        api_key: formData.get('api_key'),
+        gpt_model: formData.get('gpt_model'),
+        instructions: formData.get('instructions'),
+        file_path: formData.get('file_path'),
+        row_limit: parseInt(formData.get('row_limit'), 10) || null,
+        additional_columns: []
+    };
+
+    // Add additional columns if any
+    const numColumns = parseInt(document.getElementById('num-additional-columns').value, 10) || 0;
+    for (let i = 1; i <= numColumns; i++) {
+        const nameField = document.getElementById(`additional-column-${i}-name`);
+        const instructionsField = document.getElementById(`additional-column-${i}-instructions`);
+        
+        if (nameField && instructionsField && nameField.value && instructionsField.value) {
+            payload.additional_columns.push({
+                name: nameField.value,
+                instructions: instructionsField.value
+            });
+        }
+    }
+
+    console.log('Emitting start_processing with payload:', payload); // Debug log
+
+    // Update UI to processing state
+    const processButton = document.getElementById('process-button');
+    processButton.disabled = true;
+    processButton.textContent = 'Processing...';
+
+    // Show progress elements
+    const progressDiv = document.getElementById('overall-progress');
+    const progressBar = progressDiv.querySelector('.progress-bar');
+    const progressText = document.getElementById('overall-progress-text');
+    const operationStatus = document.getElementById('current-operation');
+    const progressTimestamp = document.getElementById('progress-timestamp');
+
+    progressDiv.style.display = 'block';
+    document.getElementById('operation-status').style.display = 'block';
+    progressTimestamp.textContent = ''; // Clear previous timestamp
+
+    progressBar.style.width = '0%';
+    progressBar.textContent = '0%';
+    progressText.textContent = 'Processing started...';
+    operationStatus.textContent = 'Initializing...';
+
+    // Emit the processing event with a callback for acknowledgment
+    socket.emit('start_processing', payload, function(response) {
+        console.log('Server acknowledged start_processing:', response);
+        
+        if (!response) {
+            showError('No response from server');
+            resetUI();
+            return;
+        }
+
+        if (response.status === 'error') {
+            showError(response.error || 'Failed to start processing');
+            resetUI();
+            return;
+        }
+
+        if (response.status !== 'ok') {
+            showError('Unexpected server response');
+            resetUI();
+            return;
+        }
+
+        showNotification('Processing started successfully', 'success');
+        startProgressMonitoring();
+    });
+}
+
+// ========================================
+// Initialize Application with Debug Enhancements
+// ========================================
+
+/**
+ * Initializes the application, setting up event listeners and Socket.IO connections.
+ */
 function initializeApp() {
     console.log('Starting app initialization...');
 
-    // Element References
+    // Debug form elements
     const uploadForm = document.getElementById('uploadForm');
-    const fileInput = document.getElementById('file-input');
-    const uploadButton = document.getElementById('upload-button');
     const processForm = document.getElementById('processForm');
-    const processButton = document.getElementById('process-button');
-    const numAdditionalColumns = document.getElementById('num-additional-columns');
-    const additionalColumnsContainer = document.getElementById('additional-columns-container');
-
-    console.log('Elements found:', {
+    console.log('Forms found:', {
         uploadForm: !!uploadForm,
-        fileInput: !!fileInput,
-        uploadButton: !!uploadButton,
-        processForm: !!processForm,
-        processButton: !!processButton,
-        numAdditionalColumns: !!numAdditionalColumns,
-        additionalColumnsContainer: !!additionalColumnsContainer
+        processForm: !!processForm
     });
 
+    // Add event listeners with debug logging
+    if (uploadForm) {
+        uploadForm.addEventListener('submit', function(event) {
+            console.log('Upload form submitted');
+            event.preventDefault();
+            
+            const formData = new FormData(uploadForm);
+            const file = document.getElementById('file-input').files[0];
+            console.log('File selected:', file?.name);
+
+            // Handle file upload
+            handleUpload(formData, file);
+        });
+    }
+
+    if (processForm) {
+        processForm.addEventListener('submit', function(event) {
+            console.log('Process form submitted');
+            event.preventDefault();
+
+            if (!verifySocketConnection()) {
+                console.log('Socket connection verification failed');
+                return;
+            }
+
+            const formData = new FormData(processForm);
+            console.log('Form data:', {
+                apiKey: !!formData.get('api_key'),
+                gptModel: formData.get('gpt_model'),
+                instructions: !!formData.get('instructions'),
+                filePath: formData.get('file_path'),
+                rowLimit: formData.get('row_limit')
+            });
+
+            // Handle process form submission
+            handleProcess(formData);
+        });
+    }
+
+    // Debug Socket.IO connection
     try {
+        console.log('Initializing Socket.IO connection...');
         const serverUrl = window.socketConfig?.serverUrl || window.location.origin;
         const options = {
-            autoConnect: false,
             transports: ['websocket', 'polling'],
-            reconnection: true,
-            reconnectionAttempts: MAX_RECONNECTION_ATTEMPTS,
-            reconnectionDelay: 1000,
-            timeout: 20000,
-            path: '/socket.io',
-            namespace: '/',
-            forceNew: true
+            path: '/socket.io'
         };
-
-        // Initialize Socket.IO
         socket = io(serverUrl, options);
-
-        // Set a timeout to check for connection issues
-        const connectionTimeout = setTimeout(() => {
-            if (!socket || !socket.connected) {
-                showError('Failed to connect to server. Please refresh the page.');
-                updateSocketStatus('Disconnected');
-            }
-        }, 5000);
 
         // Socket.IO Event Listeners
         socket.on('connect', () => {
-            console.log('Socket connected with ID:', socket.id);
-            console.log('Socket connection state:', socket.connected);
-            clearTimeout(connectionTimeout);
-            showNotification('Connected to server.', 'success');
-            reconnectionAttempts = 0;
-            isReconnecting = false;
+            console.log('Socket connected:', socket.id);
             updateSocketStatus('Connected');
+            showNotification('Connected to server.', 'success');
         });
 
         socket.on('connect_error', (error) => {
-            console.warn('Socket connection error:', error);
+            console.error('Socket connection error:', error);
             showError('Unable to connect to the server. Please try again later.');
             if (reconnectionAttempts < MAX_RECONNECTION_ATTEMPTS && !isReconnecting) {
                 isReconnecting = true;
@@ -477,320 +741,174 @@ function initializeApp() {
 
         socket.on('scrape_count_updated', function(data) {
             console.log('Scrape count updated:', data);
-            const scrapeCountElement = document.querySelector('.navbar-nav .nav-link span');
+            const scrapeCountElement = document.querySelector('.navbar-nav .nav-link span#scrape-count');
             if (scrapeCountElement) {
                 scrapeCountElement.textContent = `Scrapes: ${data.scrapes_used}/${data.scrape_limit}`;
             }
         });
 
-        // Connect to the server
-        socket.connect();
-
-        // Form Handlers
-
-        // Upload Form Submission Handler
-        if (uploadForm && fileInput && uploadButton) {
-            uploadForm.addEventListener('submit', function(event) {
-                event.preventDefault();
-
-                // Add form elements logging
-                const formElements = uploadForm.elements;
-                console.log('Upload form submitted');
-                console.log('Form elements:', Array.from(formElements).map(el => ({
-                    id: el.id,
-                    name: el.name,
-                    value: el.value ? '[HAS VALUE]' : '[EMPTY]',
-                    type: el.type
-                })));
-
-                const file = fileInput.files[0];
-                if (!file) {
-                    showError('Please select a file.');
-                    return;
-                }
-
-                const formData = new FormData();
-                formData.append('file', file);
-
-                uploadButton.disabled = true;
-                uploadButton.textContent = 'Uploading...';
-
-                fetch('/upload', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.error) {
-                        showError(data.error);
-                        return;
-                    }
-                    document.getElementById('file_path').value = data.file_path;
-
-                    const fileInfo = document.getElementById('resultsMessage');
-                    if (fileInfo) {
-                        fileInfo.innerHTML = `
-                            <div class="alert alert-info">
-                                <strong>File loaded:</strong> ${data.row_count} rows
-                                <br>
-                                <small>Available columns: ${data.columns.join(', ')}</small>
-                            </div>
-                        `;
-                    }
-                    document.getElementById('config-section').style.display = 'block';
-                    showNotification('File uploaded successfully! Configure your analysis settings.', 'success');
-                })
-                .catch(error => {
-                    console.error('Upload error:', error);
-                    showError('Upload failed. Please try again.');
-                })
-                .finally(() => {
-                    uploadButton.disabled = false;
-                    uploadButton.textContent = 'Upload & Configure';
-                });
-            });
-        }
-
-        // Process Form Submission Handler
-        if (processForm && processButton) {
-            processForm.addEventListener('submit', function(event) {
-                event.preventDefault();
-                console.log('Form elements:', {
-                    processForm: !!processForm,
-                    processButton: !!processButton,
-                    apiKey: !!document.getElementById('api_key'),
-                    gptModel: !!document.getElementById('gpt_model'),
-                    instructions: !!document.getElementById('instructions'),
-                    filePath: !!document.getElementById('file_path'),
-                    rowLimit: !!document.getElementById('row_limit')
-                });
-                if (!verifySocketConnection()) {
-                    showError('No socket connection available');
-                    return;
-                }
-
-                // Get form data
-                const formData = new FormData(processForm);
-                
-                // Validate form data
-                const errors = validateProcessForm(formData);
-                if (Object.keys(errors).length > 0) {
-                    showFormErrors(errors);
-                    return;
-                }
-
-                // Prepare payload
-                const payload = {
-                    api_key: formData.get('api_key'),
-                    gpt_model: formData.get('gpt_model'),
-                    instructions: formData.get('instructions'),
-                    file_path: formData.get('file_path'),
-                    row_limit: parseInt(formData.get('row_limit'), 10) || null,
-                    additional_columns: []
-                };
-
-                // Add additional columns if any
-                const numColumns = parseInt(document.getElementById('num-additional-columns').value, 10) || 0;
-                for (let i = 1; i <= numColumns; i++) {
-                    const nameField = document.getElementById(`additional-column-${i}-name`);
-                    const instructionsField = document.getElementById(`additional-column-${i}-instructions`);
-                    
-                    if (nameField && instructionsField && nameField.value && instructionsField.value) {
-                        payload.additional_columns.push({
-                            name: nameField.value,
-                            instructions: instructionsField.value
-                        });
-                    }
-                }
-
-                console.log('Emitting start_processing with payload:', payload); // Debug log
-
-                // Update UI to processing state
-                processButton.disabled = true;
-                processButton.textContent = 'Processing...';
-
-                // Show progress elements
-                const progressDiv = document.getElementById('overall-progress');
-                const progressBar = progressDiv.querySelector('.progress-bar');
-                const progressText = document.getElementById('overall-progress-text');
-                const operationStatus = document.getElementById('current-operation');
-
-                progressDiv.style.display = 'block';
-                document.getElementById('operation-status').style.display = 'block';
-
-                progressBar.style.width = '0%';
-                progressBar.textContent = '0%';
-                progressText.textContent = 'Processing started...';
-                operationStatus.textContent = 'Initializing...';
-
-                // Emit the processing event
-                socket.emit('start_processing', payload, function(response) {
-                    console.log('Server acknowledged start_processing:', response);
-                    
-                    if (!response) {
-                        showError('No response from server');
-                        resetUI();
-                        return;
-                    }
-
-                    if (response.status === 'error') {
-                        showError(response.error || 'Failed to start processing');
-                        resetUI();
-                        return;
-                    }
-
-                    if (response.status !== 'ok') {
-                        showError('Unexpected server response');
-                        resetUI();
-                        return;
-                    }
-
-                    showNotification('Processing started successfully', 'success');
-                    startProgressMonitoring();
-                });
-            });
-        }
-
-        // Additional Columns Event Listeners
-        if (numAdditionalColumns && additionalColumnsContainer) {
-            numAdditionalColumns.addEventListener('change', handleAddAdditionalColumns);
-            additionalColumnsContainer.addEventListener('click', handleRemoveColumn);
-        }
-
     } catch (error) {
-        console.error('Initialization error:', error);
-        showError('An error occurred during initialization. Please try again.');
+        console.error('Socket initialization error:', error);
+        showError('An error occurred while initializing the connection.');
     }
 }
 
-// Attach Event Listener to Initialize App on DOMContentLoaded
-document.addEventListener('DOMContentLoaded', initializeApp);
-
-// Utility Functions
+// ========================================
+// Handle Upload Function
+// ========================================
 
 /**
- * Resets the UI to its initial state.
+ * Handles the upload form submission.
+ * @param {FormData} formData - The form data containing the file.
+ * @param {File} file - The selected file.
  */
-function resetUI() {
-    // Reset forms
-    const uploadForm = document.getElementById('uploadForm');
-    const processForm = document.getElementById('processForm');
-    if (uploadForm) uploadForm.reset();
-    if (processForm) processForm.reset();
-
-    // Reset buttons
+function handleUpload(formData, file) {
     const uploadButton = document.getElementById('upload-button');
-    const processButton = document.getElementById('process-button');
-    if (uploadButton) {
+    const uploadSpinner = uploadButton.querySelector('.spinner-border');
+
+    // Show spinner
+    uploadSpinner.classList.remove('d-none');
+    uploadButton.disabled = true;
+    uploadButton.innerHTML = `
+        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+        Uploading & Configure
+    `;
+
+    fetch('/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            showError(data.error);
+            return;
+        }
+        document.getElementById('file_path').value = data.file_path;
+
+        const fileInfo = document.getElementById('resultsMessage');
+        if (fileInfo) {
+            fileInfo.innerHTML = `
+                <div class="alert alert-info">
+                    <strong>File loaded:</strong> ${data.row_count} rows
+                    <br>
+                    <small>Available columns: ${data.columns.join(', ')}</small>
+                </div>
+            `;
+        }
+        document.getElementById('config-section').style.display = 'block';
+        showNotification('File uploaded successfully! Configure your analysis settings.', 'success');
+    })
+    .catch(error => {
+        console.error('Upload error:', error);
+        showError('Upload failed. Please try again.');
+    })
+    .finally(() => {
+        // Hide spinner
+        uploadSpinner.classList.add('d-none');
         uploadButton.disabled = false;
-        uploadButton.textContent = 'Upload & Configure';
-    }
-    if (processButton) {
-        processButton.disabled = false;
-        processButton.textContent = 'Start Processing';
+        uploadButton.innerHTML = `
+            <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+            Upload & Configure
+        `;
+    });
+}
+
+// ========================================
+// Handle Process Function
+// ========================================
+
+/**
+ * Handles the process form submission.
+ * @param {FormData} formData - The form data containing processing parameters.
+ */
+function handleProcess(formData) {
+    // Add validation check at the start
+    const errors = validateProcessForm(formData);
+    if (Object.keys(errors).length > 0) {
+        showFormErrors(errors);
+        return;
     }
 
-    // Hide progress elements
+    // Prepare payload
+    const payload = {
+        api_key: formData.get('api_key'),
+        gpt_model: formData.get('gpt_model'),
+        instructions: formData.get('instructions'),
+        file_path: formData.get('file_path'),
+        row_limit: parseInt(formData.get('row_limit'), 10) || null,
+        additional_columns: []
+    };
+
+    // Add additional columns if any
+    const numColumns = parseInt(document.getElementById('num-additional-columns').value, 10) || 0;
+    for (let i = 1; i <= numColumns; i++) {
+        const nameField = document.getElementById(`additional-column-${i}-name`);
+        const instructionsField = document.getElementById(`additional-column-${i}-instructions`);
+        
+        if (nameField && instructionsField && nameField.value && instructionsField.value) {
+            payload.additional_columns.push({
+                name: nameField.value,
+                instructions: instructionsField.value
+            });
+        }
+    }
+
+    console.log('Emitting start_processing with payload:', payload); // Debug log
+
+    // Update UI to processing state
+    const processButton = document.getElementById('process-button');
+    processButton.disabled = true;
+    processButton.textContent = 'Processing...';
+
+    // Show progress elements
     const progressDiv = document.getElementById('overall-progress');
-    const operationStatus = document.getElementById('operation-status');
-    if (progressDiv) progressDiv.style.display = 'none';
-    if (operationStatus) operationStatus.style.display = 'none';
+    const progressBar = progressDiv.querySelector('.progress-bar');
+    const progressText = document.getElementById('overall-progress-text');
+    const operationStatus = document.getElementById('current-operation');
+    const progressTimestamp = document.getElementById('progress-timestamp');
 
-    // Clear file info
-    const fileInfo = document.getElementById('resultsMessage');
-    if (fileInfo) fileInfo.innerHTML = '';
+    progressDiv.style.display = 'block';
+    document.getElementById('operation-status').style.display = 'block';
+    progressTimestamp.textContent = ''; // Clear previous timestamp
 
-    // Clear alerts
-    const alertContainer = document.getElementById('alert-container');
-    if (alertContainer) {
-        alertContainer.innerHTML = '';
-    }
+    progressBar.style.width = '0%';
+    progressBar.textContent = '0%';
+    progressText.textContent = 'Processing started...';
+    operationStatus.textContent = 'Initializing...';
 
-    // Clear form errors
-    clearFormErrors();
+    // Emit the processing event with a callback for acknowledgment
+    socket.emit('start_processing', payload, function(response) {
+        console.log('Server acknowledged start_processing:', response);
+        
+        if (!response) {
+            showError('No response from server');
+            resetUI();
+            return;
+        }
 
-    // Stop progress monitoring
-    stopProgressMonitoring();
-}
+        if (response.status === 'error') {
+            showError(response.error || 'Failed to start processing');
+            resetUI();
+            return;
+        }
 
-/**
- * Displays an error message to the user.
- * @param {string} message - The error message to display.
- */
-function showError(message) {
-    console.error('Error:', message);
-    const alertContainer = document.getElementById('alert-container');
-    if (alertContainer) {
-        const alert = document.createElement('div');
-        alert.className = 'alert alert-danger alert-dismissible fade show';
-        alert.role = 'alert';
-        alert.innerHTML = `
-            <strong>Error:</strong> ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        `;
-        alertContainer.appendChild(alert);
+        if (response.status !== 'ok') {
+            showError('Unexpected server response');
+            resetUI();
+            return;
+        }
 
-        // Automatically dismiss after 5 seconds
-        setTimeout(() => {
-            alert.remove();
-        }, 5000);
-    }
-}
-
-/**
- * Displays a notification message to the user.
- * @param {string} message - The notification message.
- * @param {string} type - The type of alert ('success', 'info', etc.).
- */
-function showNotification(message, type = 'success') {
-    console.log(`${type}: ${message}`);
-    const alertContainer = document.getElementById('alert-container');
-    if (alertContainer) {
-        const alert = document.createElement('div');
-        alert.className = `alert alert-${type} alert-dismissible fade show`;
-        alert.role = 'alert';
-        alert.innerHTML = `
-            <strong>${capitalizeFirstLetter(type)}:</strong> ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        `;
-        alertContainer.appendChild(alert);
-
-        // Automatically dismiss after 5 seconds
-        setTimeout(() => {
-            alert.remove();
-        }, 5000);
-    }
-}
-
-/**
- * Clears all form errors from the UI.
- */
-function clearFormErrors() {
-    document.querySelectorAll('.is-invalid').forEach(input => {
-        input.classList.remove('is-invalid');
-    });
-    document.querySelectorAll('.invalid-feedback').forEach(feedback => {
-        feedback.remove();
+        showNotification('Processing started successfully', 'success');
+        startProgressMonitoring();
     });
 }
 
-/**
- * Verifies if the Socket.IO connection is active.
- * @returns {boolean} - True if connected, false otherwise.
- */
-function verifySocketConnection() {
-    if (!socket || !socket.connected) {
-        showError('Socket connection lost. Please refresh the page.');
-        return false;
-    }
-    return true;
-}
+// ========================================
+// Event Listener to Initialize App on DOMContentLoaded
+// ========================================
 
-/**
- * Capitalizes the first letter of a string.
- * @param {string} string - The string to capitalize.
- * @returns {string} - The capitalized string.
- */
-function capitalizeFirstLetter(string) {
-    return string.charAt(0).toUpperCase() + string.slice(1);
-}
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, initializing app...');
+    initializeApp();
+});

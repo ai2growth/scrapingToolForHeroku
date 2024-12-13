@@ -1,4 +1,5 @@
 # main.py
+
 # Python Standard Library
 import os
 import re
@@ -12,6 +13,7 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy import text
 from contextlib import contextmanager
+
 # Flask and Extensions
 from flask import (
     Flask,
@@ -27,7 +29,7 @@ from flask import (
 )
 from flask_login import login_required, current_user, login_user, logout_user
 from flask_mail import Message
-from flask_socketio import emit, send
+from flask_socketio import SocketIO, emit, send
 from werkzeug.utils import secure_filename
 
 # Database and Models
@@ -68,10 +70,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
-
 # Initialize Blueprint
 bp = Blueprint('main', __name__)
+
+# =========================
+# Socket.IO Event Handlers
+# =========================
 
 @socketio.on('connect')
 def handle_connect():
@@ -82,31 +86,21 @@ def handle_connect():
 def handle_disconnect():
     logger.info(f'Client disconnected: {request.sid}')
 
-
 @socketio.on('start_processing')
 def handle_start_processing(data):
     logger.info(f'Processing started for client: {request.sid}')
     logger.debug(f'Received data: {data}')
 
     try:
-        # Log validation steps
+        # Validate input data
         logger.debug("Validating input data...")
-        if not data:
-            logger.error("No data received")
-            return {'status': 'error', 'error': 'No data received'}
-
-        # Log required fields
-        required_fields = ['file_path', 'api_key', 'instructions', 'gpt_model']
-        missing_fields = [field for field in required_fields if field not in data]
-        if missing_fields:
-            logger.error(f"Missing required fields: {missing_fields}")
-            return {'status': 'error', 'error': f'Missing fields: {", ".join(missing_fields)}'}
-
-        # Log file check
-        logger.debug(f"Checking file path: {data['file_path']}")
-        if not os.path.exists(data['file_path']):
-            logger.error(f"File not found: {data['file_path']}")
-            return {'status': 'error', 'error': 'File not found'}
+        errors = validate_process_request(data)
+        if errors:
+            error_message = '; '.join(errors)
+            error_response = handle_processing_error(error_message)
+            logger.error(f"Validation errors: {error_message}")
+            emit('start_processing_response', {'status': 'error', 'error': error_response})
+            return
 
         # Log processing start
         logger.info("Starting processing with parameters:")
@@ -114,28 +108,38 @@ def handle_start_processing(data):
         logger.info(f"Row limit: {data.get('row_limit')}")
         logger.info(f"Additional columns: {len(data.get('additional_columns', []))}")
 
-        # Your existing processing code...
+        # Start processing in a separate thread to avoid blocking
+        threading.Thread(target=process_data, args=(data, request.sid)).start()
+
+        # Acknowledge the start of processing
+        emit('start_processing_response', {'status': 'ok', 'message': 'Processing started'})
 
     except Exception as e:
+        error_response = handle_processing_error(e)
         logger.exception("Error in handle_start_processing")
-        return {'status': 'error', 'error': str(e)}
-@bp.route('/test-socket')
-def test_socket():
-    """Test Socket.IO connection."""
-    try:
-        socketio.emit('test', {'data': 'Test message'}, namespace='/')
-        return jsonify({
-            'status': 'success',
-            'message': 'Socket.IO test message sent'
-        })
-    except Exception as e:
-        logger.error(f"Socket.IO test failed: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+        emit('start_processing_response', {'status': 'error', 'error': error_response})
 
-# Add a helper function to validate the process request
+@socketio.on_error_default
+def default_error_handler(e):
+    logger.error(f'Socket.IO error: {str(e)}')
+    emit('error', {'status': 'error', 'error': str(e)})
+
+# =========================
+# Helper Functions & Classes
+# =========================
+
+def handle_processing_error(e):
+    """Categorize errors to provide user-friendly messages."""
+    error_message = str(e)
+    if 'database' in error_message.lower():
+        return 'Database error occurred. Please try again.'
+    elif 'timeout' in error_message.lower():
+        return 'Request timed out. Please try again.'
+    elif 'socket' in error_message.lower():
+        return 'Connection error. Please refresh the page.'
+    else:
+        return 'An unexpected error occurred. Please try again.'
+
 def validate_process_request(data):
     """Validate the incoming process request data."""
     errors = []
@@ -151,40 +155,82 @@ def validate_process_request(data):
     if not data.get('instructions'):
         errors.append('No instructions provided')
         
+    if not data.get('gpt_model'):
+        errors.append('No GPT model provided')
+        
     return errors
 
+def process_data(data, socket_id):
+    """Process the data and emit progress updates."""
+    try:
+        file_path = data['file_path']
+        instructions = data['instructions']
+        gpt_model = data['gpt_model']
+        row_limit = data.get('row_limit')
+        additional_columns = data.get('additional_columns', [])
 
+        # Read CSV
+        df = pd.read_csv(file_path, low_memory=False)
 
-@socketio.on_error_default
-def default_error_handler(e):
-    logger.error(f'Socket.IO error: {str(e)}')
-    emit('error', {'error': str(e)})
+        if row_limit:
+            df = df.head(row_limit)
 
-# Then your error handlers
-@bp.errorhandler(404)
-def not_found_error(error):
-    return render_template('errors/404.html'), 404
+        total_rows = len(df)
+        logger.info(f"Processing {total_rows} rows")
 
-@bp.errorhandler(500)
-def internal_error(error):
-    db.session.rollback()
-    return render_template('errors/500.html'), 500
+        # Initialize ScrapeOps client if enabled
+        scrapeops_client = get_scrapeops_client()
 
-# Attempt to import ScrapeOps client
-try:
-    from scrapeops_python_requests.scrapeops_requests import ScrapeOpsRequests
-    SCRAPEOPS_ENABLED = True
-except ImportError:
-    SCRAPEOPS_ENABLED = False
-    logging.warning("ScrapeOps not available. Using fallback scraping method.")
+        results = []
 
-# =========================
-# Helper Functions & Classes
-# =========================
+        # Process each row
+        for index, row in df.iterrows():
+            if index % CHUNK_SIZE == 0 and index != 0:
+                # Emit progress
+                emit_progress(socket_id, index, total_rows)
+            
+            result = handle_single_row_with_additional_columns(
+                row=row,
+                instructions=instructions,
+                additional_columns=additional_columns,
+                gpt_model=gpt_model
+            )
+            results.append(result)
+        
+        # Emit final progress
+        emit_progress(socket_id, total_rows, total_rows)
 
-def get_socketio():
-    """Retrieve the shared SocketIO instance."""
-    return current_app.extensions['socketio']
+        # Clean results
+        cleaned_df = clean_results(results)
+
+        # Generate CSV data
+        csv_buffer = io.StringIO()
+        cleaned_df.to_csv(csv_buffer, index=False)
+        csv_data = csv_buffer.getvalue()
+
+        # Emit processing complete
+        emit('processing_complete', {'csv_data': csv_data}, room=socket_id)
+
+        # Update user's scrape count
+        update_user_scrape_count(current_user, total_rows)
+
+    except Exception as e:
+        error_response = handle_processing_error(e)
+        logger.exception("Error during data processing")
+        emit('processing_error', {'status': 'error', 'error': error_response}, room=socket_id)
+
+def emit_progress(socket_id, current, total):
+    """Emit processing progress to the client."""
+    try:
+        percentage = int((current / total) * 100)
+        emit('processing_progress', {
+            'current': current,
+            'total': total,
+            'percentage': percentage,
+            'status': 'processing'
+        }, room=socket_id)
+    except Exception as e:
+        logger.error(f"Failed to emit progress: {str(e)}")
 
 def get_scrapeops_client():
     """Initialize and return the ScrapeOps client."""
@@ -199,103 +245,13 @@ def get_scrapeops_client():
             return None
     return None
 
-@bp.route('/test-scrape')
-@login_required
-def test_scrape():
-    """Test endpoint to verify scraping functionality."""
-    try:
-        # Test URL
-        test_url = "https://example.com"
-        
-        # Test ScrapeOps
-        scrapeops_client = get_scrapeops_client()
-        scrapeops_result = None
-        if scrapeops_client:
-            try:
-                scrapeops_result = scrape_single_site(test_url, scrapeops_client)
-            except Exception as e:
-                scrapeops_result = f"ScrapeOps Error: {str(e)}"
-
-        # Test direct request
-        direct_result = scrape_single_site(test_url)
-
-        return jsonify({
-            'status': 'test complete',
-            'scrapeops_enabled': SCRAPEOPS_ENABLED,
-            'scrapeops_result': scrapeops_result,
-            'direct_result': direct_result,
-            'memory_usage': get_memory_usage()
-        })
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        })
-    
-@bp.route('/get_scrape_count')
-@login_required  # Make sure this decorator is here
-def get_scrape_count():
-    """Get current scrape count for user."""
-    try:
-        if not current_user.is_authenticated:
-            return jsonify({'error': 'Not authenticated'}), 401
-            
-        return jsonify({
-            'scrapes_used': current_user.scrapes_used,
-            'scrape_limit': current_user.scrape_limit
-        })
-    except Exception as e:
-        logger.error(f"Error fetching scrape count: {str(e)}")
-        return jsonify({'error': 'Failed to fetch scrape count'}), 500
-    
-
-def allowed_file(filename):
-    """Check if the file has an allowed extension."""
-    ALLOWED_EXTENSIONS = {'csv'}
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-
-
-def log_memory_usage(message=""):
-    """Log current memory usage with optional message."""
-    try:
-        memory_usage = get_memory_usage()
-        logger.info(f"Memory usage {message}: {memory_usage:.2f}MB")
-    except Exception as e:
-        logger.error(f"Failed to log memory usage: {str(e)}")
-
-def process_gpt_analysis(scraped_content, instructions, gpt_model):
-    """Process GPT analysis in parallel with scraping."""
-    try:
-        if not scraped_content or scraped_content == "No data scraped":
-            return "No content to analyze"
-            
-        prompt = f"""
-        Analyze the following content based on the instructions:
-        {instructions}
-        Content: {scraped_content}
-        """
-        return get_openai_response(prompt, gpt_model)
-    except Exception as e:
-        logger.error(f"GPT analysis error: {str(e)}")
-        return f"Analysis error: {str(e)}"
-
-def get_openai_response(prompt, model="gpt-3.5-turbo"):
-    """Fast OpenAI response with no retries."""
-    try:
-        response = openai.ChatCompletion.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are a data analysis assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500,
-            temperature=0.7,
-            request_timeout=10
-        )
-        return response.choices[0].message['content'].strip()
-    except Exception as e:
-        return f"Analysis error: {str(e)}"
+def get_user_tier(user):
+    """Determine user's service tier based on their settings."""
+    if user.scrape_limit > 50000:
+        return 'enterprise'
+    elif user.scrape_limit > 20000:
+        return 'premium'
+    return 'basic'
 
 def handle_single_row_with_additional_columns(row, instructions, additional_columns, gpt_model):
     """Process a single row with any additional column analyses."""
@@ -332,7 +288,6 @@ def handle_single_row_with_additional_columns(row, instructions, additional_colu
     
     logger.info(f"Final result keys: {result.keys()}")
     return result
-
 
 def scrape_single_site(url, scrapeops_client=None):
     """Optimized scraping function with better error handling."""
@@ -400,62 +355,85 @@ def scrape_single_site(url, scrapeops_client=None):
         logger.error(f"Unexpected error while scraping {url}: {str(e)}")
         return {"success": False, "error": str(e)}
 
-def update_user_scrape_count(current_user, total_rows):
+def update_user_scrape_count(user, total_rows):
     """Updates the scrape count for the given user."""
     try:
         # Log the state before the update
-        logger.info(f"Before update: User {current_user.username} has {current_user.scrapes_used} scrapes")
+        logger.info(f"Before update: User {user.username} has {user.scrapes_used} scrapes")
 
         # Update the user's scrape count
-        current_user.scrapes_used += total_rows
+        user.scrapes_used += total_rows
 
-        # Use the existing db instance from extensions
-        from app.extensions import db
-        
         # Commit the changes
         db.session.commit()
 
-        logger.info(f"After update: User {current_user.username} now has {current_user.scrapes_used} scrapes")
+        logger.info(f"After update: User {user.username} now has {user.scrapes_used} scrapes")
 
         return {
-            'scrapes_used': current_user.scrapes_used,
-            'scrape_limit': current_user.scrape_limit
+            'scrapes_used': user.scrapes_used,
+            'scrape_limit': user.scrape_limit
         }
 
     except Exception as e:
         logger.error(f"Error updating scrape count: {str(e)}")
-        from app.extensions import db
         db.session.rollback()
         raise
 
-def process_chunk(chunk, data, socket_id):
-    """Process a chunk of data with progress updates."""
+def clean_results(results_list):
+    """Clean up results by removing empty columns and normalizing data."""
     try:
-        total_rows = len(chunk)
-        chunk_results = []
+        # Convert list of dictionaries to DataFrame
+        df = pd.DataFrame(results_list)
         
-        for index, row in chunk.iterrows():
-            # Emit progress for this chunk
-            progress = int((index / total_rows) * 100)
-            socketio.emit('processing_progress', {
-                'current': index,
-                'total': total_rows,
-                'progress': progress,
-                'status': 'processing chunk'
-            }, room=socket_id)
-            
-            result = handle_single_row_with_additional_columns(
-                row=row,
-                instructions=data.get('instructions'),
-                additional_columns=data.get('additional_columns', []),
-                gpt_model=data.get('gpt_model', 'gpt-3.5-turbo')
-            )
-            chunk_results.append(result)
-            
-        return chunk_results
+        # Remove completely empty columns
+        df = df.dropna(axis=1, how='all')
+        
+        # Remove columns where all values are empty strings
+        df = df.loc[:, (df != '').any()]
+        
+        # Remove columns that only contain error messages or "No data scraped"
+        error_patterns = ['Error:', 'No data scraped']
+        for col in df.columns:
+            if all(any(pattern in str(val) for pattern in error_patterns) 
+                   for val in df[col].dropna()):
+                df = df.drop(columns=[col])
+        return df
     except Exception as e:
-        logger.error(f"Chunk processing error: {str(e)}")
-        return []
+        logger.error(f"Error cleaning results: {str(e)}")
+        return pd.DataFrame()
+
+def process_gpt_analysis(scraped_content, instructions, gpt_model):
+    """Process GPT analysis in parallel with scraping."""
+    try:
+        if not scraped_content or scraped_content == "No data scraped":
+            return "No content to analyze"
+            
+        prompt = f"""
+        Analyze the following content based on the instructions:
+        {instructions}
+        Content: {scraped_content}
+        """
+        return get_openai_response(prompt, gpt_model)
+    except Exception as e:
+        logger.error(f"GPT analysis error: {str(e)}")
+        return f"Analysis error: {str(e)}"
+
+def get_openai_response(prompt, model="gpt-3.5-turbo"):
+    """Fast OpenAI response with no retries."""
+    try:
+        response = openai.ChatCompletion.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a data analysis assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=500,
+            temperature=0.7,
+            request_timeout=10
+        )
+        return response.choices[0].message['content'].strip()
+    except Exception as e:
+        return f"Analysis error: {str(e)}"
 
 # Configuration for Scraping
 # =========================
@@ -495,29 +473,72 @@ def optimize_scraping_params(user):
         'max_workers': ScrapingConfig.WORKER_LIMITS[tier]
     }
 
-def clean_results(results_list):
-    """Clean up results by removing empty columns and normalizing data."""
-    # Convert list of dictionaries to DataFrame
-    df = pd.DataFrame(results_list)
-    
-    # Remove completely empty columns
-    df = df.dropna(axis=1, how='all')
-    
-    # Remove columns where all values are empty strings
-    df = df.loc[:, (df != '').any()]
-    
-    # Remove columns that only contain error messages or "No data scraped"
-    error_patterns = ['Error:', 'No data scraped']
-    for col in df.columns:
-        if all(any(pattern in str(val) for pattern in error_patterns) 
-               for val in df[col].dropna()):
-            df = df.drop(columns=[col])
-        return df
-
-
 # =========================
 # Routes
 # =========================
+
+@bp.route('/test-socket')
+def test_socket():
+    """Test Socket.IO connection."""
+    try:
+        socketio.emit('test', {'data': 'Test message'}, namespace='/')
+        return jsonify({
+            'status': 'success',
+            'message': 'Socket.IO test message sent'
+        })
+    except Exception as e:
+        logger.error(f"Socket.IO test failed: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+@bp.route('/test-scrape')
+@login_required
+def test_scrape():
+    """Test endpoint to verify scraping functionality."""
+    try:
+        # Test URL
+        test_url = "https://example.com"
+        
+        # Test ScrapeOps
+        scrapeops_client = get_scrapeops_client()
+        scrapeops_result = None
+        if scrapeops_client:
+            try:
+                scrapeops_result = scrape_single_site(test_url, scrapeops_client)
+            except Exception as e:
+                scrapeops_result = f"ScrapeOps Error: {str(e)}"
+
+        # Test direct request
+        direct_result = scrape_single_site(test_url)
+
+        return jsonify({
+            'status': 'test complete',
+            'scrapeops_enabled': SCRAPEOPS_ENABLED,
+            'scrapeops_result': scrapeops_result,
+            'direct_result': direct_result,
+            'memory_usage': get_memory_usage()
+        })
+    except Exception as e:
+        logger.error(f"Error in test_scrape: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        })
+
+@bp.route('/get_scrape_count')
+@login_required
+def get_scrape_count():
+    """Get current scrape count for user."""
+    try:
+        return jsonify({
+            'scrapes_used': current_user.scrapes_used,
+            'scrape_limit': current_user.scrape_limit
+        })
+    except Exception as e:
+        logger.error(f"Error fetching scrape count: {str(e)}")
+        return jsonify({'error': 'Failed to fetch scrape count'}), 500
 
 @bp.route('/test-db')
 def test_db():
@@ -551,24 +572,6 @@ def env_check():
         'testing': current_app.config.get('TESTING'),
         'env': current_app.config.get('ENV')
     })
-
-# =========================
-# Database Utilities
-# =========================
-
-@contextmanager
-def get_db_session():
-    """Provide a transactional scope around a series of operations."""
-    session = db.session()
-    try:
-        yield session
-        session.commit()
-    except Exception as e:
-        session.rollback()
-        raise
-    finally:
-        session.close()
-
 
 @bp.route('/health')
 def health_check():
@@ -618,7 +621,6 @@ def health_check():
             'timestamp': datetime.now().isoformat()
         }), 500
 
-
 @bp.route('/routes')
 def list_routes():
     """List all registered routes."""
@@ -640,7 +642,6 @@ def index():
 def dashboard():
     return render_template('user_dashboard.html')
 
-
 @bp.route('/profile')
 @login_required
 def profile():
@@ -649,6 +650,7 @@ def profile():
 @bp.route('/upload', methods=['POST'])
 @login_required
 def upload():
+    """Handle file uploads."""
     try:
         logger.info(f"Upload request received from user: {current_user.username if current_user else 'No user'}")
         logger.info(f"User authenticated: {current_user.is_authenticated if current_user else False}")
@@ -732,15 +734,20 @@ def upload():
         return jsonify({"error": "Invalid file type. Please upload a CSV file."}), 400
 
     except Exception as e:
+        error_response = handle_processing_error(e)
         logger.error(f"Unexpected error during upload: {str(e)}")
-        return jsonify({"error": "An unexpected error occurred. Please try again."}), 500
+        return jsonify({"error": error_response}), 500
+
+# =========================
+# Run the Flask Application
+# =========================
 
 if __name__ == '__main__':
     try:
         from app import create_app
         app = create_app()
         logger.info("Starting application with SocketIO")
-        socketio.init_app(app)
+        socketio.init_app(app, cors_allowed_origins="*")
         socketio.run(app, 
                     debug=True,
                     host='0.0.0.0',
