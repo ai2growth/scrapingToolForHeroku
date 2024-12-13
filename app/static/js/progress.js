@@ -214,28 +214,47 @@ function initializeApp() {
             }
         }, 10000); // Check every 10 seconds
     }
-    
-   function fetchScrapeCount() {
+  
+    function fetchScrapeCount() {
         if (!socket || !socket.connected) {
             console.warn('Socket not connected, retrying in 2 seconds...');
             setTimeout(fetchScrapeCount, 2000);
             return;
         }
-
+    
         fetch('/get_scrape_count')
-            .then(response => response.json())
+            .then(response => {
+                if (response.status === 401) {
+                    // User is not authenticated
+                    const scrapeCountElement = document.querySelector('.navbar-nav .nav-link span');
+                    if (scrapeCountElement) {
+                        scrapeCountElement.textContent = 'Please login to view scrapes';
+                    }
+                    return null;
+                }
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
             .then(data => {
-                const scrapeCountElement = document.querySelector('.navbar-nav .nav-link span');
-                if (scrapeCountElement) {
-                    scrapeCountElement.textContent = `Scrapes: ${data.scrapes_used}/${data.scrape_limit}`;
+                if (data) {  // Only update if we have data (user is authenticated)
+                    const scrapeCountElement = document.querySelector('.navbar-nav .nav-link span');
+                    if (scrapeCountElement) {
+                        scrapeCountElement.textContent = `Scrapes: ${data.scrapes_used}/${data.scrape_limit}`;
+                    }
                 }
             })
             .catch(error => {
                 console.error('Error fetching scrape count:', error);
-                showError('Failed to fetch scrape count');
+                // Don't show error message if not authenticated
+                if (error.message !== 'Network response was not ok') {
+                    showError('Failed to fetch scrape count');
+                }
             });
     }
 
+    
     fetchScrapeCount();
 
     socket.on('scrape_count_updated', function(data) {

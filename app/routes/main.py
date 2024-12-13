@@ -293,14 +293,20 @@ def get_scrapeops_client():
             return None
     return None
 
-@bp.route('/get_scrape_count')
-@login_required
+
+@app.route('/get_scrape_count')
 def get_scrape_count():
-    """Get current scrape count for user."""
-    return jsonify({
-        'scrapes_used': current_user.scrapes_used,
-        'scrape_limit': current_user.scrape_limit
-    })
+    if not current_user.is_authenticated:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        user_scrapes = ScrapeCount.query.filter_by(user_id=current_user.id).first()
+        return jsonify({
+            'scrapes_used': user_scrapes.count if user_scrapes else 0,
+            'scrape_limit': current_user.scrape_limit
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 def allowed_file(filename):
