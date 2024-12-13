@@ -1,280 +1,211 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SmartScrape - Enrich and Categorize Your Website List</title>
-        <!-- CSS -->
-        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-        <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
-        <link href="{{ url_for('static', filename='css/progress.css') }}" rel="stylesheet">
-
-        <!-- JavaScript -->
-        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
-        <script src="{{ url_for('static', filename='js/progress.js') }}"></script>
-        <script>
-            // Global configuration for Socket.IO
-            window.socketConfig = {
-                serverUrl: window.location.origin,
-                options: {
-                    path: '/socket.io'
-                }
-            };
-        </script>
-    </head>
-
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartScrape - Enrich and Categorize Your Website List</title>
+    <!-- CSS -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Custom CSS Files -->
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/progress.css') }}" rel="stylesheet">
+</head>
 <body>
-    <div id="alert-container" class="container mt-3"></div>
+    <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
             <a class="navbar-brand" href="#">SmartScrape</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" 
                     aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
+                <!-- Left Side of Navbar -->
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
                         <a class="nav-link active" href="#">Home</a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#instructionsModal">Instructions</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#aboutModal">About</a>
-                    </li>
                 </ul>
-                    <!-- Find this section in the navbar -->
-                    <ul class="navbar-nav">
-                        {% if current_user.is_authenticated %}
-                            <li class="nav-item">
-                                <span class="nav-link" id="scrape-count">
-                                    Scrapes: {{ current_user.scrapes_used }}/{{ current_user.scrape_limit }}
-                                </span>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{{ url_for('auth.logout') }}">Logout ({{ current_user.username }})</a>
-                            </li>
-                        {% else %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="{{ url_for('auth.login') }}">Login</a>
-                            </li>
-                        {% endif %}
-                    </ul>
+                <!-- Right Side of Navbar -->
+                <ul class="navbar-nav">
+                    {% if current_user.is_authenticated %}
+                        <li class="nav-item">
+                            <span class="nav-link" id="scrape-count">
+                                Scrapes: {{ current_user.scrapes_used }}/{{ current_user.scrape_limit }}
+                            </span>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('auth.logout') }}">Logout ({{ current_user.username }})</a>
+                        </li>
+                    {% else %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('auth.login') }}">Login</a>
+                        </li>
+                    {% endif %}
+                </ul>
             </div>
         </div>
     </nav>
+
+    <!-- Alert Container for Notifications and Errors -->
     <div id="alert-container" class="container mt-3"></div>
-    <div id="socket-status" class="socket-status">
-        <span class="status-indicator"></span>
-        <span class="status-text">Disconnected</span>
-    </div>
-    <!-- Instructions Modal -->
-    <div class="modal fade" id="instructionsModal" tabindex="-1" aria-labelledby="instructionsModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="instructionsModalLabel">How to Use SmartScrape</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <h6>1. Upload Your CSV File</h6>
-                    <p>Upload a CSV file containing a 'Websites' column with the URLs you want to analyze.</p>
-
-                    <h6>2. Configure Analysis</h6>
-                    <ul>
-                        <li>Enter your OpenAI API key</li>
-                        <li>Choose the GPT model</li>
-                        <li>Provide analysis instructions</li>
-                        <li>Optionally limit the number of rows to process</li>
-                        <li>Add additional analysis columns if needed</li>
-                    </ul>
-
-                    <h6>3. Additional Columns</h6>
-                    <p>For each additional column:</p>
-                    <ul>
-                        <li>Provide a column name</li>
-                        <li>Write specific instructions for what GPT should analyze and output</li>
-                        <li>You can add up to 5 additional columns</li>
-                    </ul>
-
-                    <h6>4. Processing</h6>
-                    <p>Click 'Start Processing' and wait for the analysis to complete. The results will automatically download as a CSV file.</p>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- About Modal -->
-    <div class="modal fade" id="aboutModal" tabindex="-1" aria-labelledby="aboutModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="aboutModalLabel">About SmartScrape</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <p>SmartScrape is a powerful tool that combines web scraping with GPT analysis to help you gather and analyze website data efficiently.</p>
-                    <p>Features:</p>
-                    <ul>
-                        <li>Automated web scraping</li>
-                        <li>GPT-powered content analysis</li>
-                        <li>Custom analysis columns</li>
-                        <li>Batch processing</li>
-                        <li>CSV export</li>
-                    </ul>
-                    <p class="mt-3">Version: 1.0</p>
-                </div>
-            </div>
-        </div>
-    </div>
 
     <div class="container mt-5">
-        <div class="row justify-content-center">
-            <!-- Step 1: File Upload -->
+        <div class="row">
+            <!-- Upload Section with Authentication Check -->
             <div class="col-md-6">
-                <div class="card h-100">
+                <div class="card h-100"> 
                     <div class="card-body">
-                        <h4 class="card-title text-center mb-4">Step 1: Upload Your CSV File</h4>
+                        <h4 class="card-title text-center mb-4">Step 1: Upload CSV</h4>
                         {% if current_user.is_authenticated %}
-                        <form id="uploadForm" enctype="multipart/form-data">
-                            <div class="mb-3">
-                                <label for="file-input" class="form-label">Choose a CSV File</label>
-                                <input type="file" id="file-input" name="file" class="form-control" accept=".csv" required>                            </div>
-                            <div class="text-center">
-                                <button type="submit" class="btn btn-primary btn-lg" id="upload-button">
+                            <form id="uploadForm">
+                                <div class="mb-3">
+                                    <label for="file-input" class="form-label">Select CSV File</label>
+                                    <input type="file" class="form-control" id="file-input" accept=".csv" required>
+                                </div>
+                                <button type="submit" id="upload-button" class="btn btn-primary btn-lg">
+                                    <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
                                     Upload & Configure
                                 </button>
-                            </div>
-                        </form>
+                            </form>
+                            <!-- File Info Display -->
+                            <div id="resultsMessage" class="mt-3"></div>
                         {% else %}
                             <div class="alert alert-warning">
                                 Please <a href="{{ url_for('auth.login') }}">login</a> to upload files.
                             </div>
                         {% endif %}
-                        <div id="resultsMessage" class="alert mt-3"></div>
-                        <div id="error-message" class="alert alert-danger mt-3" role="alert"></div>
-                    </div>
-                </div>
-            </div>
-            
-<!-- Step 2: Configuration Section -->
-<div class="col-md-6" id="config-section" style="display: none;">
-    <div class="card h-100"> 
-        <div class="card-body">
-            <h4 class="card-title text-center mb-4">Step 2: Configure Processing</h4>
-            <form id="processForm">
-                <input type="hidden" id="file_path" name="file_path">
-            
-                <!-- OpenAI Configuration -->
-                <div class="mb-4">
-                    <h5>OpenAI Settings</h5>
-                    <div class="mb-3">
-                        <label for="api_key" class="form-label">OpenAI API Key</label>
-                        <input type="password" class="form-control" id="api_key" name="api_key" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="gpt_model" class="form-label">GPT Model</label>
-                        <select id="gpt_model" name="gpt_model" class="form-select" required>
-                            <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                            <option value="gpt-4">GPT-4</option>
-                        </select>
-                    </div>
-                </div>
-            
-                <!-- Analysis Instructions -->
-                <div class="mb-4">
-                    <h5>Analysis Instructions</h5>
-                    <textarea id="instructions" name="instructions" class="form-control" rows="4" required
-                              placeholder="Provide specific instructions for GPT analysis."></textarea>
-                </div>
-            
-                <!-- Additional Output Columns -->
-                <div class="mb-4">
-                    <h5>Additional Analysis Columns</h5>
-                    <p class="text-muted small">Add up to 5 custom columns with specific analysis instructions</p>
-                    
-                    <div class="mb-3">
-                        <label for="num-additional-columns" class="form-label">Number of Additional Columns</label>
-                        <select class="form-select" id="num-additional-columns" name="num_additional_columns">
-                            <option value="0">None</option>
-                            <option value="1">1 Column</option>
-                            <option value="2">2 Columns</option>
-                            <option value="3">3 Columns</option>
-                            <option value="4">4 Columns</option>
-                            <option value="5">5 Columns</option>
-                        </select>
-                    </div>
-            
-                    <!-- Container for dynamic additional columns -->
-                    <div id="additional-columns-container"></div>
-                </div>
-            
-                <!-- Row Limit Input -->
-                <div class="mb-3">
-                    <label for="row_limit" class="form-label">Number of Rows to Process</label>
-                    <input type="number" id="row_limit" name="row_limit" class="form-control" min="1"
-                           placeholder="Leave blank to process all rows">
-                </div>
-            
-                <!-- Processing Controls -->
-                <div class="text-center">
-                    <button type="submit" id="process-button" class="btn btn-success btn-lg" disabled>
-                        Start Processing
-                    </button>
-                    <div class="text-muted mt-2">
-                        <small>Processing time: Approximately 1-2 mins per 50 rows for scraping and GPT analysis</small>
-                    </div>
-                </div>
-            </form>
-            
-                <!-- Processing Controls -->
-                <div class="text-center">
-                    <button id="process-button" class="btn btn-success btn-lg" disabled>Start Processing</button>
-                    <div class="text-muted mt-2">
-                        <small>Processing time: Approximately 1-2 mins per 50 rows for scraping and GPT analysis</small>
-                    </div>
-                </div>
-            
-                <!-- Processing Status Section -->
-        <!-- Processing Status Section -->
-        <div id="processing-status" class="mt-4">
-            <!-- Overall Progress -->
-            <div id="overall-progress" class="mt-3">
-                <h6 class="text-center">Overall Progress</h6>
-                <div class="progress mb-3">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated"
-                        role="progressbar" style="width: 0%"
-                        aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
-                </div>
-                <div class="text-center mt-2">
-                    <small id="overall-progress-text">Processing row 0 of 0</small>
-                </div>
+                    </div> <!-- Close card-body -->
+                </div> <!-- Close card -->
             </div>
 
-            <!-- Current Operation Status -->
-            <div id="operation-status" class="text-center mt-2">
-                <small id="current-operation">Initializing...</small>
+            <!-- Step 2: Configuration Section (Corrected Version) -->
+            <div class="col-md-6" id="config-section" style="display: none;">
+                <div class="card h-100"> 
+                    <div class="card-body">
+                        <h4 class="card-title text-center mb-4">Step 2: Configure Processing</h4>
+                        <form id="processForm">
+                            <input type="hidden" id="file_path" name="file_path">
+                        
+                            <!-- OpenAI Configuration -->
+                            <div class="mb-4">
+                                <h5>OpenAI Settings</h5>
+                                <div class="mb-3">
+                                    <label for="api_key" class="form-label">OpenAI API Key</label>
+                                    <input type="password" class="form-control" id="api_key" name="api_key" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="gpt_model" class="form-label">GPT Model</label>
+                                    <select id="gpt_model" name="gpt_model" class="form-select" required>
+                                        <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                        <option value="gpt-4">GPT-4</option>
+                                    </select>
+                                </div>
+                            </div>
+                        
+                            <!-- Analysis Instructions -->
+                            <div class="mb-4">
+                                <h5>Analysis Instructions</h5>
+                                <textarea id="instructions" name="instructions" class="form-control" rows="4" required
+                                          placeholder="Provide specific instructions for GPT analysis."></textarea>
+                            </div>
+                        
+                            <!-- Additional Output Columns -->
+                            <div class="mb-4">
+                                <h5>Additional Analysis Columns</h5>
+                                <p class="text-muted small">Add up to 5 custom columns with specific analysis instructions</p>
+                                
+                                <div class="mb-3">
+                                    <label for="num-additional-columns" class="form-label">Number of Additional Columns</label>
+                                    <select class="form-select" id="num-additional-columns" name="num_additional_columns">
+                                        <option value="0">None</option>
+                                        <option value="1">1 Column</option>
+                                        <option value="2">2 Columns</option>
+                                        <option value="3">3 Columns</option>
+                                        <option value="4">4 Columns</option>
+                                        <option value="5">5 Columns</option>
+                                    </select>
+                                </div>
+                        
+                                <!-- Container for dynamic additional columns -->
+                                <div id="additional-columns-container"></div>
+                            </div>
+                        
+                            <!-- Row Limit Input -->
+                            <div class="mb-3">
+                                <label for="row_limit" class="form-label">Number of Rows to Process</label>
+                                <input type="number" id="row_limit" name="row_limit" class="form-control" min="1"
+                                       placeholder="Leave blank to process all rows">
+                            </div>
+                        
+                            <!-- Processing Controls -->
+                            <div class="text-center">
+                                <button type="submit" id="process-button" class="btn btn-success btn-lg">
+                                    Start Processing
+                                </button>
+                                <div class="text-muted mt-2">
+                                    <small>Processing time: Approximately 1-2 mins per 50 rows for scraping and GPT analysis</small>
+                                </div>
+                            </div>
+                            
+                            <!-- Processing Status Section -->
+                            <div id="processing-status" class="mt-4">
+                                <!-- Overall Progress -->
+                                <div id="overall-progress" class="mt-3" style="display: none;">
+                                    <h6 class="text-center">Overall Progress</h6>
+                                    <div class="progress mb-3">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated"
+                                            role="progressbar" style="width: 0%"
+                                            aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                                    </div>
+                                    <div class="text-center mt-2">
+                                        <small id="overall-progress-text">Processing row 0 of 0</small>
+                                    </div>
+                                </div>
+
+                                <!-- Current Operation Status -->
+                                <div id="operation-status" class="text-center mt-2" style="display: none;">
+                                    <small id="current-operation">Initializing...</small>
+                                </div>
+
+                                <!-- Progress Timestamp Display -->
+                                <div class="text-center mt-2">
+                                    <small id="progress-timestamp"></small>
+                                </div>
+                            </div>
+                        </form>
+                    </div> <!-- Close card-body -->
+                </div> <!-- Close card -->
             </div>
-        </div>
-            </form>
-            
-        </div> <!-- Close card-body -->
-    </div> <!-- Close card -->
-</div>
+        </div> <!-- Close row -->
+    </div> <!-- Close container -->
 
+    <!-- Socket Status Indicator -->
+    <div id="socket-status" class="fixed-bottom p-2">
+        <span class="status-indicator"></span>
+        <span class="status-text">Disconnected</span>
+    </div>
 
-</div>
-</div>
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('Initializing application...');
-        // The initializeApp function is now in progress.js
-    });
-</script>
+    <!-- Socket.IO Configuration -->
+    <script>
+        window.socketConfig = {
+            serverUrl: window.location.origin,
+            options: {
+                path: '/socket.io'
+            }
+        };
+    </script>
 
+    <!-- JavaScript -->
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- Bootstrap Bundle JS (includes Popper) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Socket.IO from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <!-- Custom JavaScript File -->
+    <script src="{{ url_for('static', filename='js/progress.js') }}"></script>
 </body>
-
 </html>
