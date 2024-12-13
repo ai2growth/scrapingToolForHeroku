@@ -10,7 +10,8 @@ import threading
 import time
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
+from sqlalchemy import text
+from contextlib import contextmanager
 # Flask and Extensions
 from flask import (
     Flask,
@@ -565,22 +566,47 @@ def clean_results(results_list):
 # =========================
 # Routes
 # =========================
-from sqlalchemy import text  # Add this import at the top
+# =========================
+# Database Utilities
+# =========================
+
+@contextmanager
+def get_db_session():
+    """Provide a transactional scope around a series of operations."""
+    session = db.session()
+    try:
+        yield session
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+# =========================
+# Routes
+# =========================
 
 @bp.route('/health')
 def health_check():
     """Health check endpoint for Render."""
     try:
-        # Test database connection using SQLAlchemy text()
-        db.session.execute(text('SELECT 1'))
-        db.session.commit()
-        
-        return jsonify({
-            'status': 'healthy',
-            'message': 'Application is running',
-            'database': 'connected',
-            'timestamp': datetime.now().isoformat()
-        }), 200
+        # Create a new session for this request
+        session = db.create_scoped_session()
+        try:
+            # Test database connection using SQLAlchemy text()
+            session.execute(text('SELECT 1'))
+            session.commit()
+            
+            return jsonify({
+                'status': 'healthy',
+                'message': 'Application is running',
+                'database': 'connected',
+                'timestamp': datetime.now().isoformat()
+            }), 200
+        finally:
+            session.close()
+            
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         return jsonify({
@@ -588,6 +614,20 @@ def health_check():
             'message': str(e),
             'timestamp': datetime.now().isoformat()
         }), 500
+
+@contextmanager
+def get_db_session():
+    """Provide a transactional scope around a series of operations."""
+    session = db.create_scoped_session()
+    try:
+        yield session
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
 
 @bp.route('/process', methods=['POST'])
 @login_required
