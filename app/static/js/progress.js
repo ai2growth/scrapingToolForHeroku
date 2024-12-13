@@ -24,7 +24,7 @@ function showError(message) {
 
         // Automatically dismiss after 5 seconds
         setTimeout(() => {
-            $(alert).alert('close');
+            alert.remove();
         }, 5000);
     } else {
         console.warn('Alert container not found.');
@@ -47,7 +47,7 @@ function showNotification(message, type = 'success') {
 
         // Automatically dismiss after 5 seconds
         setTimeout(() => {
-            $(alert).alert('close');
+            alert.remove();
         }, 5000);
     } else {
         console.warn('Alert container not found.');
@@ -60,36 +60,58 @@ function capitalizeFirstLetter(string) {
 
 // Form Validation Functions
 function validateProcessForm(formData) {
+    // Add form validation logging
+    console.log('Validating form data:', {
+        apiKey: !!formData.get('api_key'),
+        instructions: !!formData.get('instructions'),
+        filePath: !!formData.get('file_path'),
+        gptModel: formData.get('gpt_model'),
+        rowLimit: formData.get('row_limit')
+    }); 
+
     const errors = {};
     
     // API Key validation
     const apiKey = formData.get('api_key');
     if (!apiKey?.trim()) {
         errors.api_key = 'API key is required';
+        console.warn('Validation Error: API key is missing or empty.');
     }
     
     // Instructions validation
     const instructions = formData.get('instructions');
     if (!instructions?.trim()) {
         errors.instructions = 'Instructions are required';
+        console.warn('Validation Error: Instructions are missing or empty.');
     }
     
     // File path validation
     const filePath = formData.get('file_path');
     if (!filePath) {
         errors.file_path = 'Please upload a file first';
+        console.warn('Validation Error: File path is missing.');
     }
     
     // GPT Model validation
     const gptModel = formData.get('gpt_model');
     if (!gptModel) {
         errors.gpt_model = 'Please select a GPT model';
+        console.warn('Validation Error: GPT model is not selected.');
     }
     
     // Row limit validation
-    const rowLimit = parseInt(formData.get('row_limit'), 10);
+    const rowLimitValue = formData.get('row_limit');
+    const rowLimit = parseInt(rowLimitValue, 10);
     if (isNaN(rowLimit) || rowLimit < 1) {
         errors.row_limit = 'Please enter a valid number of rows';
+        console.warn(`Validation Error: Invalid row limit value "${rowLimitValue}".`);
+    }
+    
+    // Log the errors object if there are any validation errors
+    if (Object.keys(errors).length > 0) {
+        console.log('Form Validation Errors:', errors);
+    } else {
+        console.log('Form validation passed with no errors.');
     }
     
     return errors;
@@ -204,7 +226,20 @@ function resetUI() {
     if (alertContainer) {
         alertContainer.innerHTML = '';
     }
+
+    // Clear form errors
+    clearFormErrors();
+
+    // Hide progress elements
+    const progressDiv = document.getElementById('overall-progress');
+    const operationStatus = document.getElementById('operation-status');
+    if (progressDiv) progressDiv.style.display = 'none';
+    if (operationStatus) operationStatus.style.display = 'none';
+
+    // Stop progress monitoring
+    stopProgressMonitoring();
 }
+
 function validateForm() {
     const fileInput = document.getElementById('file-input');
     if (!fileInput || !fileInput.files || !fileInput.files[0]) {
@@ -223,6 +258,12 @@ function validateForm() {
 
 // Socket Connection Verification Function
 function verifySocketConnection() {
+    console.log('Socket state:', {
+        exists: !!socket,
+        connected: socket?.connected,
+        id: socket?.id
+    });
+    
     if (socket && socket.connected) {
         return true;
     } else {
@@ -272,6 +313,7 @@ function startProgressMonitoring() {
 function stopProgressMonitoring() {
     console.log('Stopping progress monitoring...');
     clearInterval(progressTimeout);
+    progressTimeout = null;
     lastProgressUpdate = Date.now();
 }
 
@@ -299,7 +341,6 @@ function initializeApp() {
     const numAdditionalColumns = document.getElementById('num-additional-columns');
     const additionalColumnsContainer = document.getElementById('additional-columns-container');
 
-  
     console.log('Elements found:', {
         uploadForm: !!uploadForm,
         fileInput: !!fileInput,
@@ -324,7 +365,7 @@ function initializeApp() {
             forceNew: true
         };
 
-        // Global socket initialization
+        // Initialize Socket.IO
         socket = io(serverUrl, options);
 
         // Set a timeout to check for connection issues
@@ -335,10 +376,11 @@ function initializeApp() {
             }
         }, 5000);
 
-        // Event listeners for Socket.IO
+        // Socket.IO Event Listeners
         socket.on('connect', () => {
+            console.log('Socket connected with ID:', socket.id);
+            console.log('Socket connection state:', socket.connected);
             clearTimeout(connectionTimeout);
-            console.log('Socket connected successfully:', socket.id);
             showNotification('Connected to server.', 'success');
             reconnectionAttempts = 0;
             isReconnecting = false;
@@ -422,6 +464,11 @@ function initializeApp() {
             resetUI();
         });
 
+        socket.on('error', (error) => {
+            console.error('Socket error:', error);
+            showError('Socket error occurred');
+        });
+
         socket.on('processing_error', function(data) {
             console.error('Processing error:', data);
             showError(data.error || 'Processing failed');
@@ -441,98 +488,128 @@ function initializeApp() {
 
         // Form Handlers
 
-// Upload Form Submission Handler
+        // Upload Form Submission Handler
+        if (uploadForm && fileInput && uploadButton) {
+            uploadForm.addEventListener('submit', function(event) {
+                event.preventDefault();
 
-// Find this section in your code and replace it
-if (uploadForm && fileInput && uploadButton) {
-    uploadForm.addEventListener('submit', function(event) {
-        event.preventDefault();
-        
-        const file = fileInput.files[0];
-        if (!file) {
-            showError('Please select a file.');
-            return;
+                // Add form elements logging
+                const formElements = uploadForm.elements;
+                console.log('Upload form submitted');
+                console.log('Form elements:', Array.from(formElements).map(el => ({
+                    id: el.id,
+                    name: el.name,
+                    value: el.value ? '[HAS VALUE]' : '[EMPTY]',
+                    type: el.type
+                })));
+
+                const file = fileInput.files[0];
+                if (!file) {
+                    showError('Please select a file.');
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                uploadButton.disabled = true;
+                uploadButton.textContent = 'Uploading...';
+
+                fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showError(data.error);
+                        return;
+                    }
+                    document.getElementById('file_path').value = data.file_path;
+
+                    const fileInfo = document.getElementById('resultsMessage');
+                    if (fileInfo) {
+                        fileInfo.innerHTML = `
+                            <div class="alert alert-info">
+                                <strong>File loaded:</strong> ${data.row_count} rows
+                                <br>
+                                <small>Available columns: ${data.columns.join(', ')}</small>
+                            </div>
+                        `;
+                    }
+                    document.getElementById('config-section').style.display = 'block';
+                    showNotification('File uploaded successfully! Configure your analysis settings.', 'success');
+                })
+                .catch(error => {
+                    console.error('Upload error:', error);
+                    showError('Upload failed. Please try again.');
+                })
+                .finally(() => {
+                    uploadButton.disabled = false;
+                    uploadButton.textContent = 'Upload & Configure';
+                });
+            });
         }
-
-        const formData = new FormData();
-        formData.append('file', file);
-
-        uploadButton.disabled = true;
-        uploadButton.textContent = 'Uploading...';
-
-        fetch('/upload', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                showError(data.error);
-                return;
-            }
-            document.getElementById('file_path').value = data.file_path;
-
-            const fileInfo = document.getElementById('resultsMessage');
-            if (fileInfo) {
-                fileInfo.innerHTML = `
-                    <div class="alert alert-info">
-                        <strong>File loaded:</strong> ${data.row_count} rows
-                    </div>
-                `;
-}
-            document.getElementById('config-section').style.display = 'block';
-            showNotification('File uploaded successfully!');
-        })
-        .catch(error => {
-            showError('Upload failed');
-        })
-        .finally(() => {
-            uploadButton.disabled = false;
-            uploadButton.textContent = 'Upload & Configure';
-        });
-    });
-}
 
         // Process Form Submission Handler
         if (processForm && processButton) {
             processForm.addEventListener('submit', function(event) {
                 event.preventDefault();
+                console.log('Form elements:', {
+                    processForm: !!processForm,
+                    processButton: !!processButton,
+                    apiKey: !!document.getElementById('api_key'),
+                    gptModel: !!document.getElementById('gpt_model'),
+                    instructions: !!document.getElementById('instructions'),
+                    filePath: !!document.getElementById('file_path'),
+                    rowLimit: !!document.getElementById('row_limit')
+                });
                 if (!verifySocketConnection()) {
+                    showError('No socket connection available');
                     return;
                 }
 
-                // Gather form data
+                // Get form data
                 const formData = new FormData(processForm);
-                const apiKey = formData.get('api_key'); // Assuming 'api_key' is the field name
-                const instructions = formData.get('instructions'); // Assuming 'instructions' is the field name
-                const filePath = formData.get('file_path'); // Assuming 'file_path' is the hidden input field
-                const gptModel = formData.get('gpt_model'); // New field
-                const rowLimit = parseInt(formData.get('row_limit'), 10); // New field
-                const numColumns = parseInt(numAdditionalColumns.value, 10) || 0;
-                const additionalColumns = [];
-
-                for (let i = 1; i <= numColumns; i++) {
-                    const columnName = formData.get(`additionalColumn${i}Name`);
-                    const columnInstructions = formData.get(`additionalColumn${i}Instructions`);
-                    if (columnName && columnInstructions) {
-                        additionalColumns.push({ name: columnName, instructions: columnInstructions });
-                    } else {
-                        showError(`Please fill in all fields for Additional Column ${i}.`);
-                        return;
-                    }
-                }
-
-                // Validate necessary fields
+                
+                // Validate form data
                 const errors = validateProcessForm(formData);
                 if (Object.keys(errors).length > 0) {
                     showFormErrors(errors);
                     return;
                 }
 
+                // Prepare payload
+                const payload = {
+                    api_key: formData.get('api_key'),
+                    gpt_model: formData.get('gpt_model'),
+                    instructions: formData.get('instructions'),
+                    file_path: formData.get('file_path'),
+                    row_limit: parseInt(formData.get('row_limit'), 10) || null,
+                    additional_columns: []
+                };
+
+                // Add additional columns if any
+                const numColumns = parseInt(document.getElementById('num-additional-columns').value, 10) || 0;
+                for (let i = 1; i <= numColumns; i++) {
+                    const nameField = document.getElementById(`additional-column-${i}-name`);
+                    const instructionsField = document.getElementById(`additional-column-${i}-instructions`);
+                    
+                    if (nameField && instructionsField && nameField.value && instructionsField.value) {
+                        payload.additional_columns.push({
+                            name: nameField.value,
+                            instructions: instructionsField.value
+                        });
+                    }
+                }
+
+                console.log('Emitting start_processing with payload:', payload); // Debug log
+
+                // Update UI to processing state
                 processButton.disabled = true;
                 processButton.textContent = 'Processing...';
 
-                // Initialize progress bar
+                // Show progress elements
                 const progressDiv = document.getElementById('overall-progress');
                 const progressBar = progressDiv.querySelector('.progress-bar');
                 const progressText = document.getElementById('overall-progress-text');
@@ -546,70 +623,174 @@ if (uploadForm && fileInput && uploadButton) {
                 progressText.textContent = 'Processing started...';
                 operationStatus.textContent = 'Initializing...';
 
-                // Emit processing event with proper payload
-                socket.emit('start_processing', { 
-                    api_model: gptModel,
-                    row_limit: rowLimit, 
-                    api_key: apiKey, 
-                    instructions: instructions, 
-                    file_path: filePath, 
-                    additional_columns: additionalColumns 
-                }, (response) => {
-                    console.log('Server response:', response);  // Debug log
+                // Emit the processing event
+                socket.emit('start_processing', payload, function(response) {
+                    console.log('Server acknowledged start_processing:', response);
                     
                     if (!response) {
-                        console.error('No response from server');
                         showError('No response from server');
                         resetUI();
                         return;
                     }
-                
+
                     if (response.status === 'error') {
-                        console.error('Server error:', response.error);
-                        showError(response.error || 'Processing failed to start.');
+                        showError(response.error || 'Failed to start processing');
                         resetUI();
                         return;
                     }
-                
+
                     if (response.status !== 'ok') {
-                        console.error('Unexpected response status:', response.status);
                         showError('Unexpected server response');
                         resetUI();
                         return;
                     }
-                
-                    console.log('Processing started successfully');
-                    showNotification('Processing started.', 'info');
+
+                    showNotification('Processing started successfully', 'success');
                     startProgressMonitoring();
                 });
             });
         }
 
-        // Additional Columns Handler
+        // Additional Columns Event Listeners
         if (numAdditionalColumns && additionalColumnsContainer) {
             numAdditionalColumns.addEventListener('change', handleAddAdditionalColumns);
             additionalColumnsContainer.addEventListener('click', handleRemoveColumn);
         }
 
     } catch (error) {
-        console.error('Error initializing the app:', error);
-        showError('An unexpected error occurred during initialization.');
+        console.error('Initialization error:', error);
+        showError('An error occurred during initialization. Please try again.');
+    }
+}
+
+// Attach Event Listener to Initialize App on DOMContentLoaded
+document.addEventListener('DOMContentLoaded', initializeApp);
+
+// Utility Functions
+
+/**
+ * Resets the UI to its initial state.
+ */
+function resetUI() {
+    // Reset forms
+    const uploadForm = document.getElementById('uploadForm');
+    const processForm = document.getElementById('processForm');
+    if (uploadForm) uploadForm.reset();
+    if (processForm) processForm.reset();
+
+    // Reset buttons
+    const uploadButton = document.getElementById('upload-button');
+    const processButton = document.getElementById('process-button');
+    if (uploadButton) {
+        uploadButton.disabled = false;
+        uploadButton.textContent = 'Upload & Configure';
+    }
+    if (processButton) {
+        processButton.disabled = false;
+        processButton.textContent = 'Start Processing';
     }
 
-    // Cleanup on page unload
-    window.addEventListener('beforeunload', () => {
-        if (socket && socket.connected) {
-            socket.disconnect();
-        }
+    // Hide progress elements
+    const progressDiv = document.getElementById('overall-progress');
+    const operationStatus = document.getElementById('operation-status');
+    if (progressDiv) progressDiv.style.display = 'none';
+    if (operationStatus) operationStatus.style.display = 'none';
+
+    // Clear file info
+    const fileInfo = document.getElementById('resultsMessage');
+    if (fileInfo) fileInfo.innerHTML = '';
+
+    // Clear alerts
+    const alertContainer = document.getElementById('alert-container');
+    if (alertContainer) {
+        alertContainer.innerHTML = '';
+    }
+
+    // Clear form errors
+    clearFormErrors();
+
+    // Stop progress monitoring
+    stopProgressMonitoring();
+}
+
+/**
+ * Displays an error message to the user.
+ * @param {string} message - The error message to display.
+ */
+function showError(message) {
+    console.error('Error:', message);
+    const alertContainer = document.getElementById('alert-container');
+    if (alertContainer) {
+        const alert = document.createElement('div');
+        alert.className = 'alert alert-danger alert-dismissible fade show';
+        alert.role = 'alert';
+        alert.innerHTML = `
+            <strong>Error:</strong> ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        alertContainer.appendChild(alert);
+
+        // Automatically dismiss after 5 seconds
+        setTimeout(() => {
+            alert.remove();
+        }, 5000);
+    }
+}
+
+/**
+ * Displays a notification message to the user.
+ * @param {string} message - The notification message.
+ * @param {string} type - The type of alert ('success', 'info', etc.).
+ */
+function showNotification(message, type = 'success') {
+    console.log(`${type}: ${message}`);
+    const alertContainer = document.getElementById('alert-container');
+    if (alertContainer) {
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type} alert-dismissible fade show`;
+        alert.role = 'alert';
+        alert.innerHTML = `
+            <strong>${capitalizeFirstLetter(type)}:</strong> ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        alertContainer.appendChild(alert);
+
+        // Automatically dismiss after 5 seconds
+        setTimeout(() => {
+            alert.remove();
+        }, 5000);
+    }
+}
+
+/**
+ * Clears all form errors from the UI.
+ */
+function clearFormErrors() {
+    document.querySelectorAll('.is-invalid').forEach(input => {
+        input.classList.remove('is-invalid');
+    });
+    document.querySelectorAll('.invalid-feedback').forEach(feedback => {
+        feedback.remove();
     });
 }
 
-// Initialize the application when the DOM is fully loaded
-document.addEventListener('DOMContentLoaded', function() {
-    try {
-        initializeApp();
-    } catch (error) {
-        console.error('Failed to initialize app:', error);
-        showError('Failed to initialize application. Please refresh the page.');
+/**
+ * Verifies if the Socket.IO connection is active.
+ * @returns {boolean} - True if connected, false otherwise.
+ */
+function verifySocketConnection() {
+    if (!socket || !socket.connected) {
+        showError('Socket connection lost. Please refresh the page.');
+        return false;
     }
-});
+    return true;
+}
+
+/**
+ * Capitalizes the first letter of a string.
+ * @param {string} string - The string to capitalize.
+ * @returns {string} - The capitalized string.
+ */
+function capitalizeFirstLetter(string) {
+    return string.charAt(0).toUpperCase() + string.slice(1);
+}
