@@ -505,27 +505,6 @@ def update_user_scrape_count(current_user, total_rows):
         from app.extensions import db
         db.session.rollback()
         raise
-if __name__ == "__main__":
-    # Create the app and get app context
-    app = create_app()
-    with app.app_context():
-        # Example: Fetch the user
-        username = 'example_user'
-        user = User.query.filter_by(username=username).first()
-
-        if user:
-            logger.info(f"User found: {user.username} (Scrapes Used: {user.scrapes_used}, Scrape Limit: {user.scrape_limit})")
-
-            try:
-                # Update the scrape count for the user
-                total_rows_to_add = 50
-                result = update_user_scrape_count(user, total_rows_to_add)
-                logger.info(f"Updated user scrape count: {result}")
-            except Exception as e:
-                logger.error(f"Failed to update user scrape count: {str(e)}")
-        else:
-            logger.warning(f"User '{username}' not found in the database.")
-
 
 def process_chunk(chunk, data, socket_id):
     """Process a chunk of data with progress updates."""
@@ -642,33 +621,54 @@ def health_check():
     """Health check endpoint for Render."""
     logger.info("Starting health check")
     try:
-        # Use existing session
-        logger.debug("Attempting database connection")
+        # Test database
         db.session.execute(text('SELECT 1'))
         db.session.commit()
+        
+        # Get registered routes
+        routes = []
+        for rule in current_app.url_map.iter_rules():
+            routes.append({
+                'endpoint': rule.endpoint,
+                'methods': list(rule.methods),
+                'path': rule.rule
+            })
+        
+        # Get environment info
+        env_info = {
+            'database_url': bool(current_app.config.get('SQLALCHEMY_DATABASE_URI')),
+            'debug': current_app.config.get('DEBUG'),
+            'testing': current_app.config.get('TESTING'),
+            'env': current_app.config.get('ENV')
+        }
         
         response = {
             'status': 'healthy',
             'message': 'Application is running',
             'database': 'connected',
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'routes': routes,
+            'environment': env_info,
+            'blueprint_routes': [r.endpoint for r in current_app.url_map.iter_rules() if r.endpoint.startswith('main')]
         }
+        
         logger.info("Health check successful")
         return jsonify(response), 200
             
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}", exc_info=True)  # Add full traceback
-        response = {
+        logger.error(f"Health check failed: {str(e)}", exc_info=True)
+        return jsonify({
             'status': 'unhealthy',
             'message': str(e),
-            'error_type': type(e).__name__,  # Add error type
+            'error_type': type(e).__name__,
             'timestamp': datetime.now().isoformat()
-        }
-        return jsonify(response), 500
-@bp.route('/test-db')  # Make sure this decorator is correct
+        }), 500
+
+# Fix this section in main.py
+@bp.route('/test-db')
 def test_db():
     """Test database connection directly."""
-    logger.info("Testing database connection")  # Add logging
+    logger.info("Testing database connection")
     try:
         engine = db.get_engine()
         with engine.connect() as conn:
@@ -687,17 +687,15 @@ def test_db():
             'error_type': type(e).__name__
         }), 500
 
-@bp.route('/env-check')  # Make sure this decorator is correct
+@bp.route('/env-check')  # This was incorrectly formatted
 def env_check():
     """Check environment variables."""
-    logger.info("Checking environment variables")  # Add logging
+    logger.info("Checking environment variables")
     return jsonify({
         'database_url': bool(current_app.config.get('SQLALCHEMY_DATABASE_URI')),
         'debug': current_app.config.get('DEBUG'),
-        'testing': current_app.config.get('TESTING'),
-        'env': current_app.config.get('ENV')
-    })
-@bp.route('/routes')
+        'testing': current_app.config.get('T
+
 def list_routes():
     """List all registered routes."""
     routes = []
@@ -814,7 +812,16 @@ def upload():
         return jsonify({"error": "An unexpected error occurred. Please try again."}), 500
 
 if __name__ == '__main__':
-    from app import create_app
-    app = create_app()
-    socketio.run(app, debug=True)
-
+    try:
+        from app import create_app
+        app = create_app()
+        logger.info("Starting application with SocketIO")
+        socketio.init_app(app)
+        socketio.run(app, 
+                    debug=True,
+                    host='0.0.0.0',
+                    port=int(os.environ.get('PORT', 5000)),
+                    use_reloader=True)
+    except Exception as e:
+        logger.error(f"Failed to start application: {str(e)}")
+        raise
