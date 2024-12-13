@@ -565,12 +565,14 @@ def clean_results(results_list):
 # =========================
 # Routes
 # =========================
+from sqlalchemy import text  # Add this import at the top
+
 @bp.route('/health')
 def health_check():
     """Health check endpoint for Render."""
     try:
-        # Test database connection
-        db.session.execute('SELECT 1')
+        # Test database connection using SQLAlchemy text()
+        db.session.execute(text('SELECT 1'))
         db.session.commit()
         
         return jsonify({
@@ -586,8 +588,6 @@ def health_check():
             'message': str(e),
             'timestamp': datetime.now().isoformat()
         }), 500
-
-
 
 @bp.route('/process', methods=['POST'])
 @login_required
