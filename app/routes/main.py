@@ -665,15 +665,15 @@ def health_check():
             'timestamp': datetime.now().isoformat()
         }
         return jsonify(response), 500
-
-@bp.route('/test-db')
+@bp.route('/test-db')  # Make sure this decorator is correct
 def test_db():
     """Test database connection directly."""
+    logger.info("Testing database connection")  # Add logging
     try:
-        # Test raw connection
         engine = db.get_engine()
         with engine.connect() as conn:
             result = conn.execute(text('SELECT 1')).scalar()
+            logger.info(f"Database test successful: {result}")
             return jsonify({
                 'status': 'success',
                 'connection': 'valid',
@@ -687,15 +687,27 @@ def test_db():
             'error_type': type(e).__name__
         }), 500
 
-@bp.route('/env-check')
+@bp.route('/env-check')  # Make sure this decorator is correct
 def env_check():
     """Check environment variables."""
+    logger.info("Checking environment variables")  # Add logging
     return jsonify({
         'database_url': bool(current_app.config.get('SQLALCHEMY_DATABASE_URI')),
         'debug': current_app.config.get('DEBUG'),
         'testing': current_app.config.get('TESTING'),
         'env': current_app.config.get('ENV')
     })
+@bp.route('/routes')
+def list_routes():
+    """List all registered routes."""
+    routes = []
+    for rule in current_app.url_map.iter_rules():
+        routes.append({
+            'endpoint': rule.endpoint,
+            'methods': list(rule.methods),
+            'path': rule.rule
+        })
+    return jsonify(routes)
 
 @bp.route('/')
 def index():
