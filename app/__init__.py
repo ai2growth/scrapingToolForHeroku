@@ -1,3 +1,4 @@
+#wsgi.py
 import logging
 from flask import Flask
 from flask_migrate import Migrate
@@ -47,10 +48,12 @@ def create_app():
 
     logger.debug("Initializing login manager")
     login_manager.init_app(app)
+
+    logger.debug("Initializing SocketIO with eventlet")
     socketio.init_app(
         app,
         cors_allowed_origins="*",
-        async_mode='eventlet',  # Change this from 'threading'
+        async_mode='eventlet',
         logger=True,
         engineio_logger=True
     )
