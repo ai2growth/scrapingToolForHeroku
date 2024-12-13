@@ -311,14 +311,21 @@ def test_scrape():
         })
     
 @bp.route('/get_scrape_count')
-@login_required
+@login_required  # Make sure this decorator is here
 def get_scrape_count():
     """Get current scrape count for user."""
-    return jsonify({
-        'scrapes_used': current_user.scrapes_used,
-        'scrape_limit': current_user.scrape_limit
-    })
-
+    try:
+        if not current_user.is_authenticated:
+            return jsonify({'error': 'Not authenticated'}), 401
+            
+        return jsonify({
+            'scrapes_used': current_user.scrapes_used,
+            'scrape_limit': current_user.scrape_limit
+        })
+    except Exception as e:
+        logger.error(f"Error fetching scrape count: {str(e)}")
+        return jsonify({'error': 'Failed to fetch scrape count'}), 500
+    
 
 def allowed_file(filename):
     """Check if the file has an allowed extension."""
