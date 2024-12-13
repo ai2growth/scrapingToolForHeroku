@@ -18,9 +18,7 @@ function showError(message) {
         alert.role = 'alert';
         alert.innerHTML = `
             <strong>Error:</strong> ${message}
-            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                <span aria-hidden="true">&times;</span>
-            </button>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         `;
         alertContainer.appendChild(alert);
 
@@ -43,9 +41,7 @@ function showNotification(message, type = 'success') {
         alert.role = 'alert';
         alert.innerHTML = `
             <strong>${capitalizeFirstLetter(type)}:</strong> ${message}
-            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                <span aria-hidden="true">&times;</span>
-            </button>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         `;
         alertContainer.appendChild(alert);
 
@@ -166,39 +162,10 @@ function handleRemoveColumn(event) {
 
 // Reset UI Function Enhancements
 function resetUI() {
-    const progressBar = document.querySelector('#overall-progress .progress-bar');
-    const progressText = document.getElementById('overall-progress-text');
-    const operationStatus = document.getElementById('current-operation');
-
-    if (progressBar) {
-        progressBar.style.width = '0%';
-        progressBar.textContent = '0%';
-        progressBar.classList.remove('bg-success', 'bg-danger');
-    }
-
-    if (progressText) {
-        progressText.textContent = '';
-    }
-
-    if (operationStatus) {
-        operationStatus.textContent = '';
-    }
-
-    const processButton = document.getElementById('process-button');
-    if (processButton) {
-        processButton.disabled = false;
-        processButton.textContent = 'Start Processing';
-    }
-
-    const overallProgress = document.getElementById('overall-progress');
-    const operationStatusDiv = document.getElementById('operation-status');
-    if (overallProgress) overallProgress.style.display = 'none';
-    if (operationStatusDiv) operationStatusDiv.style.display = 'none';
-
-    // Clear all form inputs
-    const processForm = document.getElementById('processForm');
-    if (processForm) {
-        processForm.reset();
+    // Reset upload form
+    const uploadForm = document.getElementById('uploadForm');
+    if (uploadForm) {
+        uploadForm.reset();
     }
 
     // Reset file input
@@ -207,22 +174,51 @@ function resetUI() {
         fileInput.value = '';
     }
 
-    // Clear additional columns
-    const additionalColumnsContainer = document.getElementById('additional-columns-container');
-    if (additionalColumnsContainer) {
-        additionalColumnsContainer.innerHTML = '';
+    // Reset upload button
+    const uploadButton = document.getElementById('upload-button');
+    if (uploadButton) {
+        uploadButton.disabled = false;
+        uploadButton.textContent = 'Upload & Configure';
     }
 
-    // Clear any existing alerts
+    // Hide configuration section
+    const configSection = document.getElementById('config-section');
+    if (configSection) {
+        configSection.style.display = 'none';
+    }
+
+    // Clear file info
+    const fileInfo = document.getElementById('file-info');
+    if (fileInfo) {
+        fileInfo.innerHTML = '';
+    }
+
+    // Reset process button
+    const processButton = document.getElementById('process-button');
+    if (processButton) {
+        processButton.disabled = true;
+    }
+
+    // Clear alerts
     const alertContainer = document.getElementById('alert-container');
     if (alertContainer) {
         alertContainer.innerHTML = '';
     }
+}
+function validateForm() {
+    const fileInput = document.getElementById('file-input');
+    if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+        showError('Please select a file to upload.');
+        return false;
+    }
 
-    // Clear Socket Status Indicator
-    updateSocketStatus('Disconnected');
+    const file = fileInput.files[0];
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+        showError('Please upload a CSV file.');
+        return false;
+    }
 
-    stopProgressMonitoring();
+    return true;
 }
 
 // Socket Connection Verification Function
@@ -303,6 +299,7 @@ function initializeApp() {
     const numAdditionalColumns = document.getElementById('num-additional-columns');
     const additionalColumnsContainer = document.getElementById('additional-columns-container');
 
+  
     console.log('Elements found:', {
         uploadForm: !!uploadForm,
         fileInput: !!fileInput,
@@ -444,73 +441,57 @@ function initializeApp() {
 
         // Form Handlers
 
-        // Upload Form Submission Handler
-        if (uploadForm && fileInput && uploadButton) {
-            uploadForm.addEventListener('submit', function(event) {
-                event.preventDefault();
-                // No need to verify socket connection since using fetch
-                const file = fileInput.files[0];
-                if (!file) {
-                    showError('Please select a file to upload.');
-                    return;
-                }
+// Upload Form Submission Handler
 
-                // Validate file type and size if necessary
-                const allowedTypes = ['text/csv', 'application/vnd.ms-excel'];
-                if (!allowedTypes.includes(file.type)) {
-                    showError('Invalid file type. Please upload a CSV file.');
-                    return;
-                }
-
-                if (file.size > 5 * 1024 * 1024) { // 5MB limit
-                    showError('File size exceeds 5MB limit.');
-                    return;
-                }
-
-                uploadButton.disabled = true;
-                uploadButton.textContent = 'Uploading...';
-
-                const formData = new FormData();
-                formData.append('file', file);
-
-                fetch('/upload', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.file_path && data.columns && data.row_count) {
-                        // Store file path
-                        document.getElementById('file_path').value = data.file_path;
-                        
-                        // Update file info
-                        document.getElementById('file-info').innerHTML = `
-                            <div class="alert alert-info">
-                                <strong>File loaded:</strong> ${data.row_count} rows
-                                <br>
-                                <small>Available columns: ${data.columns.join(', ')}</small>
-                            </div>
-                        `;
-                        
-                        // Show config section and enable process button
-                        document.getElementById('config-section').style.display = 'block';
-                        document.getElementById('process-button').disabled = false;
-                        
-                        showNotification('File uploaded successfully! Configure your analysis settings.', 'success');
-                    } else {
-                        throw new Error(data.error || 'Invalid server response');
-                    }
-                    uploadButton.disabled = false;
-                    uploadButton.textContent = 'Upload';
-                })
-                .catch(error => {
-                    console.error('Upload error:', error);
-                    showError(error.message || 'An error occurred during file upload.');
-                    uploadButton.disabled = false;
-                    uploadButton.textContent = 'Upload';
-                });
-            });
+// Find this section in your code and replace it
+if (uploadForm && fileInput && uploadButton) {
+    uploadForm.addEventListener('submit', function(event) {
+        event.preventDefault();
+        
+        const file = fileInput.files[0];
+        if (!file) {
+            showError('Please select a file.');
+            return;
         }
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        uploadButton.disabled = true;
+        uploadButton.textContent = 'Uploading...';
+
+        fetch('/upload', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                showError(data.error);
+                return;
+            }
+            document.getElementById('file_path').value = data.file_path;
+
+            const fileInfo = document.getElementById('resultsMessage');
+            if (fileInfo) {
+                fileInfo.innerHTML = `
+                    <div class="alert alert-info">
+                        <strong>File loaded:</strong> ${data.row_count} rows
+                    </div>
+                `;
+}
+            document.getElementById('config-section').style.display = 'block';
+            showNotification('File uploaded successfully!');
+        })
+        .catch(error => {
+            showError('Upload failed');
+        })
+        .finally(() => {
+            uploadButton.disabled = false;
+            uploadButton.textContent = 'Upload & Configure';
+        });
+    });
+}
 
         // Process Form Submission Handler
         if (processForm && processButton) {
@@ -567,20 +548,39 @@ function initializeApp() {
 
                 // Emit processing event with proper payload
                 socket.emit('start_processing', { 
-                    api_model: gptModel, // Matching Python backend field
+                    api_model: gptModel,
                     row_limit: rowLimit, 
                     api_key: apiKey, 
                     instructions: instructions, 
                     file_path: filePath, 
                     additional_columns: additionalColumns 
                 }, (response) => {
-                    if (response.status !== 'ok') {
+                    console.log('Server response:', response);  // Debug log
+                    
+                    if (!response) {
+                        console.error('No response from server');
+                        showError('No response from server');
+                        resetUI();
+                        return;
+                    }
+                
+                    if (response.status === 'error') {
+                        console.error('Server error:', response.error);
                         showError(response.error || 'Processing failed to start.');
                         resetUI();
-                    } else {
-                        showNotification('Processing started.', 'info');
-                        startProgressMonitoring();
+                        return;
                     }
+                
+                    if (response.status !== 'ok') {
+                        console.error('Unexpected response status:', response.status);
+                        showError('Unexpected server response');
+                        resetUI();
+                        return;
+                    }
+                
+                    console.log('Processing started successfully');
+                    showNotification('Processing started.', 'info');
+                    startProgressMonitoring();
                 });
             });
         }
@@ -605,4 +605,11 @@ function initializeApp() {
 }
 
 // Initialize the application when the DOM is fully loaded
-document.addEventListener('DOMContentLoaded', initializeApp);
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        initializeApp();
+    } catch (error) {
+        console.error('Failed to initialize app:', error);
+        showError('Failed to initialize application. Please refresh the page.');
+    }
+});
